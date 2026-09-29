@@ -7,6 +7,7 @@
 """
 import email.utils
 import imaplib
+import poplib
 import os
 import random
 import re
@@ -264,26 +265,53 @@ def _own_part(text):
     return "\n".join(l for l in text.splitlines() if not l.lstrip().startswith(">"))
 
 
-def check_inbox(days=14):
-    """送信先からの返信を見つけて「返信あり」に、配信停止の依頼なら停止リストへ。"""
-    host = os.environ.get("IMAP_HOST")
-    if not host:
-        print("[inbox] IMAP_HOST 未設定のためスキップ")
-        return
-    im = imaplib.IMAP4_SSL(host)
+def _imap_messages(days):
+    im = imaplib.IMAP4_SSL(os.environ["IMAP_HOST"], int(os.environ.get("IMAP_PORT", 993)))
     im.login(os.environ.get("IMAP_USER") or os.environ["SMTP_USER"],
              os.environ.get("IMAP_PASSWORD") or os.environ["SMTP_PASSWORD"])
-    im.select("INBOX")
+    im.select("INBOX", readonly=True)
     since = time.strftime("%d-%b-%Y", time.localtime(time.time() - days * 86400))
     _, ids = im.search(None, f'(SINCE "{since}")')
+    try:
+        for num in ids[0].split():
+            _, data = im.fetch(num, "(BODY.PEEK[])")
+            yield message_from_bytes(data[0][1])
+    finally:
+        im.logout()
+
+
+def _pop3_messages(limit=300):
+    """POP3（ヘテムル等）。サーバー上のメールは削除せず、新しい順に最大 limit 通だけ読む。"""
+    pop = poplib.POP3_SSL(os.environ["POP3_HOST"], int(os.environ.get("POP3_PORT", 995)))
+    pop.user(os.environ.get("POP3_USER") or os.environ["SMTP_USER"])
+    pop.pass_(os.environ.get("POP3_PASSWORD") or os.environ["SMTP_PASSWORD"])
+    try:
+        count = len(pop.list()[1])
+        for i in range(count, max(0, count - limit), -1):
+            _, lines, _ = pop.retr(i)
+            yield message_from_bytes(b"\r\n".join(lines))
+    finally:
+        pop.quit()   # DELE していないので、メールはサーバーに残る
+
+
+def check_inbox(days=14):
+    """送信先からの返信を見つけて「返信あり」に、配信停止の依頼なら停止リストへ。IMAP か POP3 のどちらか。"""
+    if os.environ.get("IMAP_HOST"):
+        messages = _imap_messages(days)
+    elif os.environ.get("POP3_HOST"):
+        messages = _pop3_messages()
+    else:
+        print("[inbox] IMAP_HOST / POP3_HOST 未設定のためスキップ")
+        return
+    if not (os.environ.get("IMAP_PASSWORD") or os.environ.get("POP3_PASSWORD") or os.environ.get("SMTP_PASSWORD")):
+        print("[inbox] メールのパスワード未設定のためスキップ")
+        return
     n_reply = n_stop = 0
     with db() as conn:
         emails = {r["email"].lower(): r for r in conn.execute(
             "SELECT id, email, stage FROM shops WHERE email IS NOT NULL AND stage NOT IN ('new')")}
         seen_ids = {r[0] for r in conn.execute("SELECT note FROM events WHERE kind IN ('replied','unsubscribed')")}
-        for num in ids[0].split():
-            _, data = im.fetch(num, "(RFC822)")
-            msg = message_from_bytes(data[0][1])
+        for msg in messages:
             sender = email.utils.parseaddr(msg.get("From", ""))[1].lower()
             shop = emails.get(sender)
             mid = msg.get("Message-ID", "")
@@ -297,5 +325,4 @@ def check_inbox(days=14):
             else:
                 record_outcome(conn, shop["id"], "replied", f"mail:{mid}")
                 n_reply += 1
-    im.logout()
     print(f"[inbox] 返信 {n_reply}件 / 配信停止 {n_stop}件 を記録")
