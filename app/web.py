@@ -77,7 +77,7 @@ textarea{width:100%;min-height:340px;font-family:inherit;font-size:14px;line-hei
 input,select{padding:7px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--fg)}
 pre{white-space:pre-wrap;font-size:13px}
 </style></head><body>
-<nav><a class="brand" href="/">Menu Photo Pro 営業</a><a href="/queue/instagram">Instagram DM</a><a href="/queue/line">LINE</a>
+<nav><a class="brand" href="/">Menu Photo Pro 営業</a><a href="/queue/instagram">Instagram DM</a><a href="/queue/line">LINE</a><a href="/mail">メール</a>
 <a href="/leads">店舗リスト</a><a href="/improve">改善</a><a href="/jobs">実行</a>
 {% if is_demo %}<span class="pill" style="margin-left:auto;border-color:var(--acc);color:var(--acc)">デモデータ表示中（架空の店舗・実際には送信されません）</span>{% endif %}</nav><main>{% block c %}{% endblock %}</main></body></html>"""
 
@@ -212,6 +212,49 @@ def touch_action(tid):
             col = "instagram" if t["channel"] == "instagram" else "line_id"
             c.execute(f"UPDATE shops SET {col}=NULL WHERE id=?", (t["shop_id"],))
     return redirect(url_for("queue", channel=t["channel"]))
+
+
+@app.route("/mail")
+def mail_page():
+    cfg = settings()
+    status = request.args.get("status", "")
+    sql = """SELECT t.*, s.name, s.email, s.id AS sid, s.score, v.name AS vname, v.subject
+             FROM touches t JOIN shops s ON s.id=t.shop_id LEFT JOIN variants v ON v.id=t.variant_id
+             WHERE t.channel='email'"""
+    args = []
+    if status:
+        sql += " AND t.status=?"; args.append(status)
+    sql += " ORDER BY t.id DESC LIMIT 200"
+    with db() as c:
+        rows = c.execute(sql, args).fetchall()
+        counts = {r["status"]: r["n"] for r in c.execute(
+            "SELECT status, COUNT(*) n FROM touches WHERE channel='email' GROUP BY status")}
+        today = c.execute("""SELECT COUNT(*) FROM touches WHERE channel='email' AND status='sent'
+                             AND date(sent_at)=date('now','localtime')""").fetchone()[0]
+    s_ = cfg["sender"]
+    checks = [
+        ("送信者の会社名・住所・メール", all(s_.get(k) for k in ("company", "address", "email"))),
+        ("SMTPサーバー（SMTP_HOST / SMTP_USER）", bool(os.environ.get("SMTP_HOST") and os.environ.get("SMTP_USER"))),
+        ("メールのパスワード（SMTP_PASSWORD）", bool(os.environ.get("SMTP_PASSWORD"))),
+        ("本番送信（EMAIL_LIVE=true）", cfg["channels"]["email_live"]),
+    ]
+    subj = lambda r: (r["subject"] or "").replace("{shop_name}", r["name"])
+    return page("""<div class="card"><h2 style="margin-top:0">✉️ メール（自動送信）</h2>
+<p>メールは毎朝 {{ auto or '（自動実行オフ）' }} の自動実行で、見込み度の高い店から1日 {{limit}} 件まで自動で送られます。ボタン操作は不要です。
+今すぐ送りたいときは「実行」→「③毎日の実行」。</p>
+<div class="grid">{% for label, ok in checks %}<div><span style="color:var({{ '--ok' if ok else '--ng' }})">{{ '✓' if ok else '✗' }}</span> {{label}}</div>{% endfor %}</div>
+<p class="mut">{% if checks|selectattr(1)|list|length == 4 %}すべて設定済み：本番送信されます。{% else %}✗ がある間は<b>ドライラン</b>（文面を作るだけで、実際には送りません）。{% endif %}</p>
+<div class="grid"><div><div class="mut">今日の送信</div><div class="num">{{today}} <span class="mut">/ {{limit}}</span></div></div>
+{% for st in ['queued','dryrun','sent','failed','skipped'] %}<div><div class="mut">{{st|ja}}</div><div class="num">{{ counts.get(st, 0) }}</div></div>{% endfor %}</div></div>
+<form class="row card"><select name="status"><option value="">すべて</option>{% for st in ['queued','dryrun','sent','failed','skipped'] %}<option value="{{st}}" {{'selected' if st==status}}>{{st|ja}}</option>{% endfor %}</select><button>絞り込み</button></form>
+<div class="card tw"><table><tr><th>日時</th><th>店名・宛先</th><th>文面</th><th>状態</th></tr>
+{% for r in rows %}<tr><td class="mut">{{ r.sent_at or r.planned_on }}</td>
+<td><a href="/shop/{{r.sid}}">{{r.name}}</a><br><span class="mut">{{r.email}}</span></td>
+<td>{{r.vname}}<details><summary class="mut">件名と本文を見る</summary><p><b>{{ subj(r) }}</b></p><pre>{{r.message}}</pre></details></td>
+<td>{{r.status|ja}} <span class="mut">{{r.error or ''}}</span></td></tr>
+{% else %}<tr><td colspan="4" class="mut">まだありません。「今日の送信リストを作る」か毎朝の自動実行で作られます。</td></tr>{% endfor %}</table></div>""",
+                rows=rows, counts=counts, today=today, checks=checks, status=status, subj=subj,
+                limit=cfg["channels"]["daily_limit"]["email"], auto=os.environ.get("AUTO_DAILY_AT"))
 
 
 @app.route("/leads")
