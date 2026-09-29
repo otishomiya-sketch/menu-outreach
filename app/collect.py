@@ -27,6 +27,20 @@ OWNER_RE = re.compile(r"(?:オーナー|店主|代表(?:取締役)?|料理長|�
 BAD_EMAIL_PARTS = ("example.", "sentry", "wixpress", ".png", ".jpg", ".gif", "@2x", "domain.")
 
 
+def dataset_id(run):
+    """apify-client 1.x は dict、2.x はモデルオブジェクトを返すので両方に対応。"""
+    if not run:
+        raise RuntimeError("Apify の実行結果が空です")
+    if isinstance(run, dict):
+        ds = run.get("defaultDatasetId")
+    else:
+        ds = getattr(run, "default_dataset_id", None) or getattr(run, "defaultDatasetId", None)
+    status = run.get("status") if isinstance(run, dict) else getattr(run, "status", None)
+    if not ds:
+        raise RuntimeError(f"Apify の実行に失敗しました（status={status}）")
+    return ds
+
+
 def _first(items):
     return items[0] if items else None
 
@@ -109,13 +123,13 @@ def run_search(keyword, location, limit, force=False):
             return 0
     client = ApifyClient(token)
     print(f"[collect] Apify: {keyword} @ {location} (max {limit})")
-    run = client.actor(ACTOR_ID).call(run_input={
+    run = client.actor(ACTOR_ID).call(logger=None, run_input={
         "searchStringsArray": [keyword], "locationQuery": location,
         "maxCrawledPlacesPerSearch": limit, "language": "ja", "countryCode": "jp",
         "skipClosedPlaces": True, "scrapeContacts": True,
     })
     added = total = 0
-    for item in client.dataset(run["defaultDatasetId"]).iterate_items():
+    for item in client.dataset(dataset_id(run)).iterate_items():
         if item.get("permanentlyClosed") or item.get("temporarilyClosed"):
             continue
         website = (item.get("website") or "").strip()

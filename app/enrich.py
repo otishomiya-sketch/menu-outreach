@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 import requests
 
 from . import photo
-from .collect import OWNER_RE
+from .collect import OWNER_RE, dataset_id
 from .core import clamp01, db, settings
 
 GRAPH = "https://graph.facebook.com/" + os.environ.get("GRAPH_API_VERSION", "v21.0")
@@ -52,9 +52,9 @@ def via_apify(usernames, n_media):
     from apify_client import ApifyClient
 
     client = ApifyClient(os.environ["APIFY_API_TOKEN"])
-    run = client.actor("apify/instagram-profile-scraper").call(run_input={"usernames": usernames})
+    run = client.actor("apify/instagram-profile-scraper").call(logger=None, run_input={"usernames": usernames})
     out = {}
-    for it in client.dataset(run["defaultDatasetId"]).iterate_items():
+    for it in client.dataset(dataset_id(run)).iterate_items():
         posts = (it.get("latestPosts") or [])[:n_media]
         out[(it.get("username") or "").lower()] = {
             "followers": it.get("followersCount"), "media_count": it.get("postsCount"),

@@ -3,6 +3,6 @@ pyyaml>=6.0
 requests>=2.31
 beautifulsoup4>=4.12
 pillow>=10.0
-apify-client>=1.7
+apify-client>=1.7,<3
 anthropic>=0.40   # 任意: 写真のAI採点・文面の自動提案を使うとき
 gunicorn>=22.0
