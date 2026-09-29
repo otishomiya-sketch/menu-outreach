@@ -15,6 +15,30 @@ from .core import CHANNELS, DB_PATH, ROOT, db, settings
 
 app = Flask(__name__)
 
+# 画面に出す英語の状態名 → 日本語
+JA = {
+    # 店舗のステージ
+    "new": "未送信", "contacted": "送信済み", "replied": "返信あり", "trial": "無料体験", "paid": "有料契約",
+    "declined": "お断り", "unsubscribed": "配信停止", "unreachable": "送信不可",
+    # 送信の状態
+    "queued": "送信待ち", "sent": "送信済み", "skipped": "スキップ", "failed": "失敗", "dryrun": "ドライラン",
+    # チャネル
+    "instagram": "Instagram DM", "email": "メール", "line": "LINE",
+    # 記録の種類
+    "note": "メモ",
+    # 文面・仮説の状態
+    "active": "配信中", "proposed": "承認待ち", "retired": "停止", "rejected": "却下",
+    "testing": "検証中", "adopted": "採用",
+    # 実行
+    "collect": "①収集", "enrich": "②Instagram解析", "daily": "③毎日の実行", "auto": "全自動", "reflect": "④振り返り",
+}
+
+
+@app.template_filter("ja")
+def ja(value):
+    return JA.get(value, value)
+
+
 
 @app.before_request
 def _auth():
@@ -206,13 +230,13 @@ def leads():
         prefs = [r[0] for r in c.execute("SELECT DISTINCT prefecture FROM shops WHERE prefecture IS NOT NULL ORDER BY 1")]
     return page("""<form class="row card"><input name="q" value="{{q}}" placeholder="店名・業種">
 <select name="pref"><option value="">都道府県</option>{% for p in prefs %}<option {{'selected' if p==pref}}>{{p}}</option>{% endfor %}</select>
-<select name="stage"><option value="">ステージ</option>{% for s in ['new','contacted','replied','trial','paid','declined','unsubscribed','unreachable'] %}<option {{'selected' if s==stage}}>{{s}}</option>{% endfor %}</select>
+<select name="stage"><option value="">ステージ</option>{% for s in ['new','contacted','replied','trial','paid','declined','unsubscribed','unreachable'] %}<option value="{{s}}" {{'selected' if s==stage}}>{{s|ja}}</option>{% endfor %}</select>
 <button>絞り込み</button></form>
 <div class="card tw"><table><tr><th>見込み度</th><th>店名</th><th>地域・業種</th><th>活発度</th><th>写真の弱点</th><th>連絡先</th><th>ステージ</th></tr>
 {% for s in rows %}<tr><td><b>{{s.score if s.score is not none else '-'}}</b></td><td><a href="/shop/{{s.id}}">{{s.name}}</a></td>
 <td class="mut">{{s.prefecture or ''}} {{s.category or ''}}</td><td>{{ '%.2f'|format(s.activity or 0) }}</td><td>{{ '%.2f'|format(s.weakness or 0) }}</td>
 <td>{% if s.instagram %}<span class="pill">IG</span>{% endif %}{% if s.email and not s.email_refused %}<span class="pill">メール</span>{% endif %}{% if s.line_id %}<span class="pill">LINE</span>{% endif %}</td>
-<td>{{s.stage}}</td></tr>{% endfor %}</table></div>""", rows=rows, prefs=prefs, pref=pref, q=q, stage=stage)
+<td>{{s.stage|ja}}</td></tr>{% endfor %}</table></div>""", rows=rows, prefs=prefs, pref=pref, q=q, stage=stage)
 
 
 @app.route("/shop/<int:sid>", methods=["GET", "POST"])
@@ -231,7 +255,7 @@ def shop(sid):
                                WHERE shop_id=? ORDER BY t.id DESC""", (sid,)).fetchall()
         events = c.execute("SELECT * FROM events WHERE shop_id=? ORDER BY id DESC", (sid,)).fetchall()
     return page("""<div class="card"><h2 style="margin-top:0">{{s.name}}</h2>
-<div class="mut">{{s.address}} ・ {{s.category}} ・ ★{{s.rating}}（{{s.reviews}}件） ・ 見込み度 {{s.score}} ・ <b>{{s.stage}}</b></div>
+<div class="mut">{{s.address}} ・ {{s.category}} ・ ★{{s.rating}}（{{s.reviews}}件） ・ 見込み度 {{s.score}} ・ <b>{{s.stage|ja}}</b></div>
 <div class="row" style="margin-top:8px">{% if s.website %}<a class="btn sub" target="_blank" href="{{s.website}}">サイト</a>{% endif %}
 {% if s.instagram %}<a class="btn sub" target="_blank" href="https://www.instagram.com/{{s.instagram}}/">Instagram</a>{% endif %}
 {% if s.place_url and s.place_url.startswith('http') %}<a class="btn sub" target="_blank" href="{{s.place_url}}">Googleマップ</a>{% endif %}</div>
@@ -247,8 +271,8 @@ def shop(sid):
 {% for k,label in [('owner_name','オーナー名'),('instagram','Instagram'),('line_id','LINE ID'),('email','メール')] %}
 <label class="mut">{{label}}<br><input name="{{k}}" value="{{s[k] or ''}}"></label>{% endfor %}</div>
 {% if s.email_refused %}<p class="mut">⚠ サイトに営業お断りの表示があるため、メールは送りません</p>{% endif %}<button class="sub">保存</button></form>
-<div class="card tw"><h3 style="margin-top:0">履歴</h3><table>{% for t in touches %}<tr><td>{{t.sent_at or t.planned_on}}</td><td>{{t.channel}}</td><td>{{t.vname}}</td><td>{{t.status}} {{t.error or ''}}</td></tr>{% endfor %}
-{% for e in events %}<tr><td>{{e.at}}</td><td colspan="2"><b>{{e.kind}}</b></td><td>{{e.note or ''}}</td></tr>{% endfor %}</table></div>""",
+<div class="card tw"><h3 style="margin-top:0">履歴</h3><table>{% for t in touches %}<tr><td>{{t.sent_at or t.planned_on}}</td><td>{{t.channel|ja}}</td><td>{{t.vname}}</td><td>{{t.status|ja}} {{t.error or ''}}</td></tr>{% endfor %}
+{% for e in events %}<tr><td>{{e.at}}</td><td colspan="2"><b>{{e.kind|ja}}</b></td><td>{{e.note or ''}}</td></tr>{% endfor %}</table></div>""",
                 s=s, g=g, touches=touches, events=events)
 
 
@@ -272,8 +296,8 @@ def improve_page():
     return page("""<div class="card"><div class="row" style="justify-content:space-between"><h2 style="margin:0">文面の成績</h2>
 <form method="post"><button name="action" value="reflect">今すぐ振り返る（集計・引退判定・新しい文面の提案）</button></form></div>
 {% if rep %}<p class="mut">前回 {{rep.at}}: {{ notes|join(' / ') }}</p>{% endif %}
-<div class="tw"><table><tr><th>文面</th><th>状態</th>{% for ch in chs %}<th>{{ch}}<br><span class="mut">送信・反応率・最良の確率</span></th>{% endfor %}<th></th></tr>
-{% for v in variants %}<tr><td><b>{{v.name}}</b></td><td>{{v.status}}</td>
+<div class="tw"><table><tr><th>文面</th><th>状態</th>{% for ch in chs %}<th>{{ch|ja}}<br><span class="mut">送信・反応率・最良の確率</span></th>{% endfor %}<th></th></tr>
+{% for v in variants %}<tr><td><b>{{v.name}}</b></td><td>{{v.status|ja}}</td>
 {% for ch in chs %}{% set p = perf[ch].get(v.id) %}<td>{% if p %}{{p.sent}}件・{{ '%.1f%%'|format(100*p.rate) if p.rate is not none else '-' }}・{{ '%.0f%%'|format(100*p.p_best) }}{% else %}-{% endif %}</td>{% endfor %}
 <td><form method="post" class="row"><input type="hidden" name="vid" value="{{v.id}}">
 {% if v.status=='proposed' %}<button class="ok" name="action" value="active">承認して配信</button><button class="sub" name="action" value="rejected">却下</button>
@@ -282,7 +306,7 @@ def improve_page():
 <tr><td colspan="{{ 3 + chs|length }}"><details><summary class="mut">本文と意図を見る</summary><p class="mut">{{v.rationale or ''}}</p><pre>{{v.body}}</pre></details></td></tr>{% endfor %}
 </table></div></div>
 <div class="card tw"><h2 style="margin-top:0">仮説</h2><table><tr><th>日付</th><th>仮説</th><th>状態</th><th>結果</th></tr>
-{% for h in hyps %}<tr><td>{{h.created_at[:10]}}</td><td><b>{{h.title}}</b><br><span class="mut">{{h.proposal}}</span></td><td>{{h.status}}</td><td>{{h.result or ''}}</td></tr>{% endfor %}</table></div>""",
+{% for h in hyps %}<tr><td>{{h.created_at[:10]}}</td><td><b>{{h.title}}</b><br><span class="mut">{{h.proposal}}</span></td><td>{{h.status|ja}}</td><td>{{h.result or ''}}</td></tr>{% endfor %}</table></div>""",
                 variants=variants, perf=perf, chs=CHANNELS, hyps=hyps, rep=rep, notes=notes)
 
 
@@ -317,7 +341,7 @@ def jobs_page():
 <span class="mut">返信取り込み → 未収集エリアの収集 → 解析 → 送信リスト → メール → 通知 を今すぐ実行</span><button {{'disabled' if running}}>実行する</button></form>
 <form method="post" class="row card"><input type="hidden" name="name" value="reflect"><b>④振り返り</b>
 <span class="mut">集計・文面の引退判定・新しい文面の提案</span><button {{'disabled' if running}}>実行する</button></form></div>
-{% if st.name %}<div class="card"><h3 style="margin-top:0">{{st.name}}：{{ '実行中…' if running else ('完了' if st.ok else '失敗') }}
+{% if st.name %}<div class="card"><h3 style="margin-top:0">{{st.name|ja}}：{{ '実行中…' if running else ('完了' if st.ok else '失敗') }}
 <span class="mut">{{st.started}} 〜 {{st.finished or ''}}</span></h3>
 {% if st.error %}<div class="card" style="border-color:var(--ng)"><b>エラー：</b><pre>{{st.error}}</pre></div>{% endif %}<pre>{{st.log}}</pre></div>{% endif %}""",
                 st=st, running=running, auto=os.environ.get("AUTO_DAILY_AT"), live=cfg["channels"]["email_live"],
