@@ -57,3 +57,19 @@ Menu Photo Pro 側で `st.query_params.get("ref")` を記録すれば、どの�
 
 - **推奨：Business Discovery API（公式）**。`IG_BD_USER_ID` と `IG_BD_ACCESS_TOKEN` を使います。Facebookページに紐づけたプロアカウントで、Facebookログイン方式のトークンが必要です。insta-autopost-kit の「Instagram業務用ログイン」トークンでは動きません。1時間に約200件まで取得できます
 - **予備：Apify `instagram-profile-scraper`**。上の2つが空のときに使います
+
+## 本番環境（Railway）
+
+GitHub の `main` に push すると Railway に自動でデプロイされます。データは Railway のボリューム（`/data/outreach.db`）に保存されます。
+Railway の Variables で設定する値:
+
+| 変数 | 内容 |
+|---|---|
+| `DASHBOARD_PASSWORD` | **必須**。未設定だとダッシュボードは開きません（ユーザー名は `otis`、`DASHBOARD_USER` で変更可） |
+| `SENDER_COMPANY` / `SENDER_ADDRESS` / `SENDER_EMAIL` / `SENDER_CONTACT` | メールの送信者表示。リポジトリが公開なので、settings.yaml ではなくここに書く |
+| `APIFY_API_TOKEN`、`IG_BD_*`、`SMTP_*`、`IMAP_*`、`ANTHROPIC_API_KEY` | `.env.example` と同じ |
+| `EMAIL_LIVE` | `true` でメールを本番送信（初期値 `false`） |
+| `AUTO_DAILY_AT` | 例 `09:30`。毎日この時刻に「毎日の実行」を自動で動かす（月曜は振り返りも）。未設定なら自動実行しない |
+| `COLLECT_AREAS` | 収集エリア（カンマ区切り）。settings.yaml より優先 |
+
+収集・解析・毎日の実行・振り返りは、ダッシュボードの「実行」画面から動かせます。
