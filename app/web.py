@@ -318,7 +318,8 @@ def jobs_page():
 <form method="post" class="row card"><input type="hidden" name="name" value="reflect"><b>④振り返り</b>
 <span class="mut">集計・文面の引退判定・新しい文面の提案</span><button {{'disabled' if running}}>実行する</button></form></div>
 {% if st.name %}<div class="card"><h3 style="margin-top:0">{{st.name}}：{{ '実行中…' if running else ('完了' if st.ok else '失敗') }}
-<span class="mut">{{st.started}} 〜 {{st.finished or ''}}</span></h3><pre>{{st.log}}</pre></div>{% endif %}""",
+<span class="mut">{{st.started}} 〜 {{st.finished or ''}}</span></h3>
+{% if st.error %}<div class="card" style="border-color:var(--ng)"><b>エラー：</b><pre>{{st.error}}</pre></div>{% endif %}<pre>{{st.log}}</pre></div>{% endif %}""",
                 st=st, running=running, auto=os.environ.get("AUTO_DAILY_AT"), live=cfg["channels"]["email_live"],
                 areas=",".join(cfg["collect"].get("areas") or []))
 

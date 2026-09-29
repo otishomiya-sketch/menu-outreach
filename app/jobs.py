@@ -5,18 +5,28 @@ AUTO_DAILY_AT=09:30 のように環境変数を設定したときだけ、毎日
 """
 import contextlib
 import io
+import re
+import sys
 import threading
 import time
 import traceback
 from datetime import datetime
 
 _lock = threading.Lock()
-state = {"name": None, "started": None, "finished": None, "log": "", "ok": None}
+state = {"name": None, "started": None, "finished": None, "log": "", "ok": None, "error": None}
+ANSI = re.compile(r"\x1b\[[0-9;]*m|\[\d+m")
 
 
 class _Tee(io.StringIO):
+    """画面用に保存しつつ、Railway のログ（本来の標準出力）にも出す。"""
     def write(self, s):
+        s = ANSI.sub("", s)
         state["log"] = (state["log"] + s)[-20000:]
+        try:
+            sys.__stdout__.write(s)
+            sys.__stdout__.flush()
+        except Exception:
+            pass
         return len(s)
 
 
@@ -78,7 +88,7 @@ def _task(name, **kw):
 def start(name, **kw):
     if not _lock.acquire(blocking=False):
         return False
-    state.update(name=name, started=datetime.now().strftime("%m/%d %H:%M:%S"), finished=None, log="", ok=None)
+    state.update(name=name, started=datetime.now().strftime("%m/%d %H:%M:%S"), finished=None, log="", ok=None, error=None)
 
     def run():
         buf = _Tee()
@@ -86,8 +96,12 @@ def start(name, **kw):
             with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
                 _task(name, **kw)()
             state["ok"] = True
-        except BaseException:   # SystemExit（設定不足のメッセージ）も画面に出す
-            state["log"] += "\n" + traceback.format_exc(limit=3)
+        except BaseException as e:   # SystemExit（設定不足のメッセージ）も画面に出す
+            tb = traceback.format_exc(limit=4)
+            state["error"] = f"{type(e).__name__}: {e}"
+            state["log"] += "\n" + tb
+            sys.__stdout__.write(f"[job {name}] 失敗\n{tb}\n")
+            sys.__stdout__.flush()
             state["ok"] = False
         finally:
             state["finished"] = datetime.now().strftime("%m/%d %H:%M:%S")
