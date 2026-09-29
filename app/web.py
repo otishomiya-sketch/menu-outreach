@@ -235,6 +235,8 @@ def mail_page():
     checks = [
         ("送信者の会社名・住所・メール", all(s_.get(k) for k in ("company", "address", "email"))),
         ("SMTPサーバー（SMTP_HOST / SMTP_USER）", bool(os.environ.get("SMTP_HOST") and os.environ.get("SMTP_USER"))),
+        (f"送信元とSMTPユーザーが同じ（{s_.get('email') or '未設定'}）",
+         bool(s_.get("email")) and (os.environ.get("SMTP_USER") or "").lower() == (s_.get("email") or "").lower()),
         ("メールのパスワード（SMTP_PASSWORD）", bool(os.environ.get("SMTP_PASSWORD"))),
         ("本番送信（EMAIL_LIVE=true）", cfg["channels"]["email_live"]),
     ]
@@ -243,7 +245,7 @@ def mail_page():
 <p>メールは毎朝 {{ auto or '（自動実行オフ）' }} の自動実行で、見込み度の高い店から1日 {{limit}} 件まで自動で送られます。ボタン操作は不要です。
 今すぐ送りたいときは「実行」→「③毎日の実行」。</p>
 <div class="grid">{% for label, ok in checks %}<div><span style="color:var({{ '--ok' if ok else '--ng' }})">{{ '✓' if ok else '✗' }}</span> {{label}}</div>{% endfor %}</div>
-<p class="mut">{% if checks|selectattr(1)|list|length == 4 %}すべて設定済み：本番送信されます。{% else %}✗ がある間は<b>ドライラン</b>（文面を作るだけで、実際には送りません）。{% endif %}</p>
+<p class="mut">{% if checks|selectattr(1)|list|length == checks|length %}すべて設定済み：本番送信されます。{% else %}✗ がある間は<b>ドライラン</b>（文面を作るだけで、実際には送りません）。{% endif %}</p>
 <div class="grid"><div><div class="mut">今日の送信</div><div class="num">{{today}} <span class="mut">/ {{limit}}</span></div></div>
 {% for st in ['queued','dryrun','sent','failed','skipped'] %}<div><div class="mut">{{st|ja}}</div><div class="num">{{ counts.get(st, 0) }}</div></div>{% endfor %}</div></div>
 <form class="row card"><select name="status"><option value="">すべて</option>{% for st in ['queued','dryrun','sent','failed','skipped'] %}<option value="{{st}}" {{'selected' if st==status}}>{{st|ja}}</option>{% endfor %}</select><button>絞り込み</button></form>

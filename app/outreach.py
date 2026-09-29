@@ -188,6 +188,9 @@ def _check_sender(cfg):
     for k in ("SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD"):
         if not os.environ.get(k):
             raise SystemExit(f".env の {k} が空です")
+    if os.environ["SMTP_USER"].lower() != s["email"].lower():
+        raise SystemExit(f"送信元アドレス（SENDER_EMAIL={s['email']}）とSMTPのユーザー（SMTP_USER={os.environ['SMTP_USER']}）が"
+                         "違います。なりすまし判定で届かなくなるため、同じアドレスにそろえてください。")
 
 
 def send_emails(live=None):

@@ -35,6 +35,9 @@ def settings():
             cfg["sender"][key] = os.environ[f"SENDER_{key.upper()}"]
     if os.environ.get("EMAIL_LIVE"):
         cfg["channels"]["email_live"] = os.environ["EMAIL_LIVE"].lower() in ("1", "true", "yes")
+    for ch in ("instagram", "line", "email"):   # 例: EMAIL_DAILY_LIMIT=20（新しいアドレスは少なめから始める）
+        if os.environ.get(f"{ch.upper()}_DAILY_LIMIT"):
+            cfg["channels"]["daily_limit"][ch] = int(os.environ[f"{ch.upper()}_DAILY_LIMIT"])
     if os.environ.get("COLLECT_AREAS"):
         cfg["collect"]["areas"] = [a.strip() for a in os.environ["COLLECT_AREAS"].split(",") if a.strip()]
     return cfg
