@@ -6,10 +6,10 @@
 """
 import json
 
-from flask import Flask, abort, redirect, render_template_string, request, url_for
+from flask import Flask, abort, redirect, render_template_string, request, send_from_directory, url_for
 
 from . import bandit, improve, outreach
-from .core import CHANNELS, db, settings
+from .core import CHANNELS, DB_PATH, ROOT, db, settings
 
 app = Flask(__name__)
 
@@ -34,11 +34,22 @@ input,select{padding:7px;border:1px solid var(--line);border-radius:6px;backgrou
 pre{white-space:pre-wrap;font-size:13px}
 </style></head><body>
 <nav><a class="brand" href="/">Menu Photo Pro 営業</a><a href="/queue/instagram">Instagram DM</a><a href="/queue/line">LINE</a>
-<a href="/leads">店舗リスト</a><a href="/improve">改善</a></nav><main>{% block c %}{% endblock %}</main></body></html>"""
+<a href="/leads">店舗リスト</a><a href="/improve">改善</a>
+{% if is_demo %}<span class="pill" style="margin-left:auto;border-color:var(--acc);color:var(--acc)">デモデータ表示中（架空の店舗・実際には送信されません）</span>{% endif %}</nav><main>{% block c %}{% endblock %}</main></body></html>"""
 
 
 def page(body, **kw):
     return render_template_string(BASE.replace("{% block c %}{% endblock %}", body), **kw)
+
+
+@app.route("/demo-img/<path:name>")
+def demo_img(name):
+    return send_from_directory(ROOT / "data" / "demo", name)
+
+
+@app.context_processor
+def _demo_flag():
+    return {"is_demo": DB_PATH.name == "demo.db"}
 
 
 @app.route("/")

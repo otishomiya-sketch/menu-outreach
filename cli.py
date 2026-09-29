@@ -12,8 +12,16 @@
   python cli.py reflect [--no-propose] ④振り返り（集計・文面の引退判定・新しい文面の提案）
   python cli.py daily                inbox → plan → email を順に実行
   python cli.py serve                ダッシュボードを開く http://127.0.0.1:8765
+  python cli.py demo                 APIキーなしで動作確認（架空の30店で data/demo.db を作り、ダッシュボードを開く）
+  python cli.py serve --demo         作成済みのデモデータでダッシュボードを開く
 """
 import argparse
+import os
+import sys
+from pathlib import Path
+
+if "demo" in sys.argv or "--demo" in sys.argv:
+    os.environ["MENU_OUTREACH_DB"] = str(Path(__file__).resolve().parent / "data" / "demo.db")
 
 from app.core import init_db, load_env
 
@@ -40,6 +48,9 @@ def main():
     sub.add_parser("daily")
     p = sub.add_parser("serve")
     p.add_argument("--port", type=int, default=8765)
+    p.add_argument("--demo", action="store_true", help="デモデータで開く")
+    p = sub.add_parser("demo")
+    p.add_argument("--port", type=int, default=8765)
     a = ap.parse_args()
 
     init_db()
@@ -65,6 +76,11 @@ def main():
         outreach.check_inbox()
         outreach.plan()
         outreach.send_emails()
+    elif a.cmd == "demo":
+        from app import demo
+        from app.web import serve
+        demo.seed()
+        serve(a.port)
     elif a.cmd == "serve":
         from app.web import serve
         serve(a.port)
