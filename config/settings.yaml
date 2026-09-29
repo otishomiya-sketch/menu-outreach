@@ -1,0 +1,50 @@
+# Menu Photo Pro 営業アプリ 設定
+# APIキー類は .env に書く（このファイルには書かない）
+
+sender:
+  person: 大宮                     # 本文の「オーティスの大宮です」
+  company: ""                      # 必須（メール送信時） 特定電子メール法の表示義務（メールのみ）: 送信者の氏名または名称
+  address: ""                      # 必須（メール送信時）: 送信者の住所。空だとメールは送信されません
+  email: ""                        # 送信元メールアドレス（SMTPのユーザーと同じにする）
+  contact: ""                      # 問い合わせ先（電話番号 または URL）
+
+service:
+  trial_url: "https://7ayyryczawpyuggappqsqqd.streamlit.app/?openExternalBrowser=1"
+  # true にすると URL に &ref=<店舗コード> を付ける。Menu Photo Pro 側で st.query_params["ref"] を
+  # 記録すれば「どの店が・どの文面で」無料体験を始めたか自動で分かる
+  append_ref: true
+
+# ---- ①集める（Googleマップ / Apify） ----
+collect:
+  keywords: [居酒屋, カフェ, ラーメン, 焼肉, イタリアン, 和食, 中華料理, 洋食, 定食, ベーカリー, スイーツ, バー]
+  # 空なら47都道府県すべて。まずは1〜2エリアで試すこと（Apifyは件数課金）
+  areas: [東京都渋谷区, 大阪市北区]
+  limit_per_search: 40
+
+# ---- ②見込み度スコア ----
+scoring:
+  target_posts_30d: 8        # 30日にこの本数投稿していれば「更新頻繁」とみなす（満点）
+  stale_after_days: 14       # 最終投稿がこれより古いと活発度を減点
+  min_activity: 0.35         # これ未満の店は後回し（スコア×0.3）
+  images_per_shop: 9         # 写真品質を測る直近投稿の枚数
+  weights: {activity: 0.45, weakness: 0.45, reach: 0.10}
+  use_vision: false          # true で Claude が写真を見て「素人っぽさ」を採点（精度↑・費用↑）
+  vision_model: claude-haiku-4-5-20251001
+
+# ---- ③送る ----
+channels:
+  priority: [instagram, email, line]   # 1店につき、まずこの順で使えるチャネル1つだけに送る
+  followup_after_days: 14              # 反応がなければ、別チャネルで1回だけ再アプローチ
+  max_touches_per_shop: 2
+  daily_limit:
+    instagram: 25    # 手動送信。アカウント保護のため 30 を超えないこと
+    line: 20         # 手動送信
+    email: 100       # 自動送信
+  email_interval_sec: [40, 90]         # メール1通ごとの待ち時間（ランダム）
+  email_live: false                    # false の間はメールを実際には送らない（ドライラン）
+
+# ---- ④自己改善 ----
+improve:
+  min_sends_to_judge: 150     # 1文面あたりこの件数送るまでは勝ち負けを判定しない
+  retire_if_p_best_below: 0.03
+  proposal_model: claude-sonnet-5-5
