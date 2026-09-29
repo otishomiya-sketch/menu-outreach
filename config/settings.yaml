@@ -20,6 +20,9 @@ collect:
   # 空なら47都道府県すべて。まずは1〜2エリアで試すこと（Apifyは件数課金）
   areas: [東京都渋谷区, 大阪市北区]
   limit_per_search: 40
+  # 毎朝の自動収集: nationwide = 47都道府県 × keywords を順番に / areas = 上の areas だけ
+  auto_scope: nationwide
+  auto_searches_per_day: 5   # 1日に回す「エリア×業種」の数（環境変数 AUTO_SEARCHES_PER_DAY で上書き）
 
 # ---- ②見込み度スコア ----
 scoring:

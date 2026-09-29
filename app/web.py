@@ -304,7 +304,7 @@ def jobs_page():
     running = st["name"] and not st["finished"]
     return page("""{% if running %}<meta http-equiv="refresh" content="5">{% endif %}
 <div class="card"><h2 style="margin-top:0">実行</h2><p class="mut">重い処理は裏で動きます。同時に動かせるのは1つだけです。
-{% if auto %}毎日 {{auto}} に「毎日の実行」が自動で動きます（月曜は振り返りも）。{% else %}自動実行はオフです（環境変数 AUTO_DAILY_AT で設定）。{% endif %}</p>
+{% if auto %}毎朝 {{auto}} に「全自動」が動きます（月曜は振り返りも）。{% else %}自動実行はオフです（環境変数 AUTO_DAILY_AT で設定）。{% endif %}</p>
 <form method="post" class="row card"><input type="hidden" name="name" value="collect"><b>①収集</b>
 <input name="areas" placeholder="エリア（カンマ区切り）" value="{{ areas }}" style="flex:1;min-width:200px">
 <input name="keywords" placeholder="業種（空なら設定どおり）" style="flex:1;min-width:160px">
@@ -313,6 +313,8 @@ def jobs_page():
 <input name="limit" type="number" value="200" style="width:110px"><span class="mut">店まで</span><button {{'disabled' if running}}>解析する</button></form>
 <form method="post" class="row card"><input type="hidden" name="name" value="daily"><b>③毎日の実行</b>
 <span class="mut">返信の取り込み → 今日の送信リスト → メール送信（{{ '本番' if live else 'ドライラン' }}）</span><button {{'disabled' if running}}>実行する</button></form>
+<form method="post" class="row card"><input type="hidden" name="name" value="auto"><b>全自動（毎朝の処理）</b>
+<span class="mut">返信取り込み → 未収集エリアの収集 → 解析 → 送信リスト → メール → 通知 を今すぐ実行</span><button {{'disabled' if running}}>実行する</button></form>
 <form method="post" class="row card"><input type="hidden" name="name" value="reflect"><b>④振り返り</b>
 <span class="mut">集計・文面の引退判定・新しい文面の提案</span><button {{'disabled' if running}}>実行する</button></form></div>
 {% if st.name %}<div class="card"><h3 style="margin-top:0">{{st.name}}：{{ '実行中…' if running else ('完了' if st.ok else '失敗') }}

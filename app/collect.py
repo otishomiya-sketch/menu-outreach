@@ -161,3 +161,36 @@ def run(areas=None, keywords=None, limit=None, force=False):
         for kw in keywords:
             n += run_search(kw, area, limit, force)
     print(f"[collect] 完了: 新規 {n}件")
+
+
+def auto_areas():
+    """毎朝の自動収集で回るエリア。collect.auto_scope が nationwide なら47都道府県、areas なら settings の areas。"""
+    cfg = settings()["collect"]
+    if cfg.get("auto_scope", "nationwide") == "areas" and cfg.get("areas"):
+        return cfg["areas"]
+    return PREFS
+
+
+def run_auto(searches=None):
+    """まだ集めていない「エリア×業種」を、1日 searches 件だけ順番に集める。全部回ったら古い順に取り直す。"""
+    cfg = settings()["collect"]
+    searches = searches or int(os.environ.get("AUTO_SEARCHES_PER_DAY") or cfg.get("auto_searches_per_day", 5))
+    with db() as conn:
+        done = {(r["keyword"], r["location"]): r["at"] for r in conn.execute("SELECT * FROM collect_runs")}
+    combos = [(kw, area) for area in auto_areas() for kw in cfg["keywords"]]
+    todo = [c for c in combos if c not in done]
+    if len(todo) < searches:   # 一巡したら、いちばん古いものから取り直す（新店・閉店の反映）
+        todo += sorted((c for c in combos if c in done), key=lambda c: done[c])
+    todo = todo[:searches]
+    print(f"[collect] 自動収集: 残り {len([c for c in combos if c not in done])}/{len(combos)} 組のうち {len(todo)} 組を実行")
+    n = fails = 0
+    for kw, area in todo:
+        try:
+            n += run_search(kw, area, cfg["limit_per_search"], force=True)
+        except Exception as e:
+            fails += 1
+            print(f"[collect] 失敗 {kw} @ {area}: {e}")
+    print(f"[collect] 自動収集 完了: 新規 {n}件")
+    if todo and fails == len(todo):
+        raise RuntimeError("すべての検索が失敗しました（APIFY_API_TOKEN・残高を確認）")
+    return n
