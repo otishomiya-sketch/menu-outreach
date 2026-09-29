@@ -4,14 +4,34 @@
 - 店舗リスト: 見込み度順。店ごとに反応（返信・無料体験・有料・お断り）を記録
 - 改善: 文面ごとの成績、提案された文面の承認
 """
+import hmac
 import json
+import os
 
 from flask import Flask, abort, redirect, render_template_string, request, send_from_directory, url_for
 
-from . import bandit, improve, outreach
+from . import bandit, improve, jobs, outreach
 from .core import CHANNELS, DB_PATH, ROOT, db, settings
 
 app = Flask(__name__)
+
+
+@app.before_request
+def _auth():
+    """DASHBOARD_PASSWORD があればベーシック認証。サーバー上（PORT あり）でパスワード未設定なら開かない。"""
+    if request.path == "/healthz":
+        return None
+    pw = os.environ.get("DASHBOARD_PASSWORD")
+    if not pw:
+        if os.environ.get("PORT") and request.remote_addr not in ("127.0.0.1", "::1"):
+            return ("DASHBOARD_PASSWORD が未設定のため、ダッシュボードを公開していません。", 503)
+        return None
+    a = request.authorization
+    if a and hmac.compare_digest(a.username or "", os.environ.get("DASHBOARD_USER", "otis")) \
+            and hmac.compare_digest(a.password or "", pw):
+        return None
+    return ("ログインが必要です", 401, {"WWW-Authenticate": 'Basic realm="menu-outreach"'})
+
 
 BASE = """<!doctype html><html lang="ja"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>Menu Photo Pro 営業</title>
@@ -34,12 +54,17 @@ input,select{padding:7px;border:1px solid var(--line);border-radius:6px;backgrou
 pre{white-space:pre-wrap;font-size:13px}
 </style></head><body>
 <nav><a class="brand" href="/">Menu Photo Pro 営業</a><a href="/queue/instagram">Instagram DM</a><a href="/queue/line">LINE</a>
-<a href="/leads">店舗リスト</a><a href="/improve">改善</a>
+<a href="/leads">店舗リスト</a><a href="/improve">改善</a><a href="/jobs">実行</a>
 {% if is_demo %}<span class="pill" style="margin-left:auto;border-color:var(--acc);color:var(--acc)">デモデータ表示中（架空の店舗・実際には送信されません）</span>{% endif %}</nav><main>{% block c %}{% endblock %}</main></body></html>"""
 
 
 def page(body, **kw):
     return render_template_string(BASE.replace("{% block c %}{% endblock %}", body), **kw)
+
+
+@app.route("/healthz")
+def healthz():
+    return "ok"
 
 
 @app.route("/demo-img/<path:name>")
@@ -259,6 +284,41 @@ def improve_page():
 <div class="card tw"><h2 style="margin-top:0">仮説</h2><table><tr><th>日付</th><th>仮説</th><th>状態</th><th>結果</th></tr>
 {% for h in hyps %}<tr><td>{{h.created_at[:10]}}</td><td><b>{{h.title}}</b><br><span class="mut">{{h.proposal}}</span></td><td>{{h.status}}</td><td>{{h.result or ''}}</td></tr>{% endfor %}</table></div>""",
                 variants=variants, perf=perf, chs=CHANNELS, hyps=hyps, rep=rep, notes=notes)
+
+
+@app.route("/jobs", methods=["GET", "POST"])
+def jobs_page():
+    if request.method == "POST":
+        name = request.form["name"]
+        kw = {}
+        if name == "collect":
+            kw["areas"] = [a.strip() for a in request.form.get("areas", "").split(",") if a.strip()] or None
+            kw["keywords"] = [k.strip() for k in request.form.get("keywords", "").split(",") if k.strip()] or None
+            kw["limit"] = int(request.form.get("limit") or 0) or None
+        if name == "enrich":
+            kw["limit"] = int(request.form.get("limit") or 200)
+        jobs.start(name, **kw)
+        return redirect("/jobs")
+    cfg = settings()
+    st = jobs.state
+    running = st["name"] and not st["finished"]
+    return page("""{% if running %}<meta http-equiv="refresh" content="5">{% endif %}
+<div class="card"><h2 style="margin-top:0">実行</h2><p class="mut">重い処理は裏で動きます。同時に動かせるのは1つだけです。
+{% if auto %}毎日 {{auto}} に「毎日の実行」が自動で動きます（月曜は振り返りも）。{% else %}自動実行はオフです（環境変数 AUTO_DAILY_AT で設定）。{% endif %}</p>
+<form method="post" class="row card"><input type="hidden" name="name" value="collect"><b>①収集</b>
+<input name="areas" placeholder="エリア（カンマ区切り）" value="{{ areas }}" style="flex:1;min-width:200px">
+<input name="keywords" placeholder="業種（空なら設定どおり）" style="flex:1;min-width:160px">
+<input name="limit" type="number" placeholder="1検索の件数" style="width:110px"><button {{'disabled' if running}}>収集する</button></form>
+<form method="post" class="row card"><input type="hidden" name="name" value="enrich"><b>②Instagram解析</b>
+<input name="limit" type="number" value="200" style="width:110px"><span class="mut">店まで</span><button {{'disabled' if running}}>解析する</button></form>
+<form method="post" class="row card"><input type="hidden" name="name" value="daily"><b>③毎日の実行</b>
+<span class="mut">返信の取り込み → 今日の送信リスト → メール送信（{{ '本番' if live else 'ドライラン' }}）</span><button {{'disabled' if running}}>実行する</button></form>
+<form method="post" class="row card"><input type="hidden" name="name" value="reflect"><b>④振り返り</b>
+<span class="mut">集計・文面の引退判定・新しい文面の提案</span><button {{'disabled' if running}}>実行する</button></form></div>
+{% if st.name %}<div class="card"><h3 style="margin-top:0">{{st.name}}：{{ '実行中…' if running else ('完了' if st.ok else '失敗') }}
+<span class="mut">{{st.started}} 〜 {{st.finished or ''}}</span></h3><pre>{{st.log}}</pre></div>{% endif %}""",
+                st=st, running=running, auto=os.environ.get("AUTO_DAILY_AT"), live=cfg["channels"]["email_live"],
+                areas=",".join(cfg["collect"].get("areas") or []))
 
 
 def serve(port=8765):

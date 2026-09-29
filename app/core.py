@@ -27,7 +27,17 @@ def load_env():
 
 
 def settings():
-    return yaml.safe_load((ROOT / "config" / "settings.yaml").read_text(encoding="utf-8"))
+    """settings.yaml を読み、環境変数で上書きする。
+    リポジトリは公開なので、住所などの個人情報は Railway の環境変数に置く。"""
+    cfg = yaml.safe_load((ROOT / "config" / "settings.yaml").read_text(encoding="utf-8"))
+    for key in ("person", "company", "address", "email", "contact"):
+        if os.environ.get(f"SENDER_{key.upper()}"):
+            cfg["sender"][key] = os.environ[f"SENDER_{key.upper()}"]
+    if os.environ.get("EMAIL_LIVE"):
+        cfg["channels"]["email_live"] = os.environ["EMAIL_LIVE"].lower() in ("1", "true", "yes")
+    if os.environ.get("COLLECT_AREAS"):
+        cfg["collect"]["areas"] = [a.strip() for a in os.environ["COLLECT_AREAS"].split(",") if a.strip()]
+    return cfg
 
 
 SCHEMA = """
