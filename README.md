@@ -88,3 +88,15 @@ templates/variants.yaml 初期の営業文面
 ```
 
 元にしたスキル: maps-outreach（収集・フォーム送信）、insta-autopost-kit（Instagram API）、self-improving-agent-os（検証→仮説→選択のループ）。
+
+## 成果の受け取り（Menu Photo Pro との連携）
+
+Menu Photo Pro から `POST /api/track` に、無料体験（`trial`）と有料契約（`paid`）が届く。
+
+```json
+{"ref": "a1b2c3d4-in1", "event": "trial", "code": "デモコード", "shop_name": "入力された店名"}
+```
+
+- `ref` はお試しURLの `?ref=`（店舗コード-チャネル文面ID）。無料体験のときに `code`（Menu Photo Pro のデモコード）と一緒に記録する
+- 有料契約は `code` だけでよい（無料体験のときの記録から店を特定）
+- 環境変数 `TRACK_TOKEN` を設定すると、ヘッダー `X-Track-Token` が一致する報告だけ受け付ける
