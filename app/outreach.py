@@ -181,6 +181,18 @@ def record_outcome(conn, shop_id, kind, note=None, touch_id=None):
 
 # ---------- メール送信 ----------
 
+def smtp_connect(port=None, timeout=30):
+    """SMTP サーバーにつないでログインする。465 は SSL、587 などは STARTTLS。"""
+    port = int(port or os.environ.get("SMTP_PORT", 465))
+    if port == 465:
+        s = smtplib.SMTP_SSL(os.environ["SMTP_HOST"], port, timeout=timeout)
+    else:
+        s = smtplib.SMTP(os.environ["SMTP_HOST"], port, timeout=timeout)
+        s.starttls()
+    s.login(os.environ["SMTP_USER"], os.environ["SMTP_PASSWORD"])
+    return s
+
+
 def mail_mode():
     """送信の方式。RESEND_API_KEY があれば Resend（HTTPS API）、なければ SMTP。
     Railway の Hobby プランは SMTP の送信を禁止しているので、本番は Resend を使う。"""
@@ -251,8 +263,7 @@ class _SmtpSender:
         msg["List-Unsubscribe"] = f"<mailto:{s['email']}?subject=配信停止>"
         if self.smtp is None:
             try:
-                self.smtp = smtplib.SMTP_SSL(os.environ["SMTP_HOST"], int(os.environ.get("SMTP_PORT", 465)), timeout=30)
-                self.smtp.login(os.environ["SMTP_USER"], os.environ["SMTP_PASSWORD"])
+                self.smtp = smtp_connect()
             except Exception as e:
                 raise FatalSendError(f"SMTPに接続できません: {e}")
         try:
@@ -341,14 +352,20 @@ def test_connection():
     elif not (os.environ.get("SMTP_HOST") and user and pw):
         results.append("✗ 送信（SMTP）: SMTP_HOST / SMTP_USER / SMTP_PASSWORD のどれかが未設定です")
     else:
+        port = int(os.environ.get("SMTP_PORT", 465))
         try:
-            with smtplib.SMTP_SSL(os.environ["SMTP_HOST"], int(os.environ.get("SMTP_PORT", 465)), timeout=15) as s:
-                s.login(user, pw)
-            results.append(f"✓ 送信（SMTP）: {user} でログインできました")
+            smtp_connect(port, timeout=15).quit()
+            results.append(f"✓ 送信（SMTP）: {user} でログインできました（ポート {port}）")
         except smtplib.SMTPAuthenticationError:
             results.append(f"✗ 送信（SMTP）: {user} のパスワードが違います")
         except Exception as e:
-            results.append(f"✗ 送信（SMTP）: 接続できませんでした（{e}）")
+            other = 587 if port == 465 else 465
+            try:
+                smtp_connect(other, timeout=15).quit()
+                results.append(f"✗ 送信（SMTP）: ポート {port} はつながりませんが、ポート {other} ならログインできました。"
+                               f"Railway の SMTP_PORT を {other} にしてください")
+            except Exception as e2:
+                results.append(f"✗ 送信（SMTP）: 接続できませんでした（ポート {port}: {e} / ポート {other}: {e2}）")
     try:
         if os.environ.get("IMAP_HOST"):
             im = imaplib.IMAP4_SSL(os.environ["IMAP_HOST"], int(os.environ.get("IMAP_PORT", 993)))
