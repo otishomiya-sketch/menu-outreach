@@ -270,14 +270,17 @@ def settings_page():
             ("Instagram公式API", _set("IG_BD_USER_ID", "IG_BD_ACCESS_TOKEN"), "IG_BD_USER_ID / IG_BD_ACCESS_TOKEN"),
         ]),
     ]
-    return render_template("settings.html", groups=groups)
+    return render_template("settings.html", groups=groups, notify_result=_last_notify)
+
+
+_last_notify = []
 
 
 @app.post("/settings/test-notify")
 def test_notify():
     from . import notify
-    notify.send("【Menu Photo Pro 営業】通知のテストです。これが届けば設定完了です。")
-    return redirect("/settings?sent=1")
+    _last_notify[:] = notify.send("【Menu Photo Pro 営業】通知のテストです。これが届けば設定完了です。")
+    return redirect("/settings")
 
 
 @app.route("/jobs", methods=["GET", "POST"])

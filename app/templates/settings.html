@@ -20,6 +20,7 @@
 {% endfor %}
 <form method="post" action="/settings/test-notify" class="card row">
   <button>通知をテスト送信</button>
-  <span class="mut">{% if request.args.get('sent') %}送信しました。届かない場合は「実行」画面のログか、設定を確認してください。{% else %}Discord / LINE に設定済みの通知先へテストメッセージを送ります{% endif %}</span>
+  <span class="mut">Discord / LINE に設定済みの通知先へテストメッセージを送ります</span>
+  {% for r in notify_result %}<div style="width:100%">{{ '✓' if '送信しました' in r else '✗' }} {{ r }}</div>{% endfor %}
 </form>
 {% endblock %}
