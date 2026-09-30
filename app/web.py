@@ -169,15 +169,18 @@ def mail_page():
         today = c.execute("""SELECT COUNT(*) FROM touches WHERE channel='email' AND status='sent'
                              AND date(sent_at)=date('now','localtime')""").fetchone()[0]
     sender = cfg["sender"]
-    smtp_user = (os.environ.get("SMTP_USER") or "").lower()
-    checks = [
-        ("送信者の会社名・住所・メール", all(sender.get(k) for k in ("company", "address", "email"))),
-        ("SMTPサーバー（SMTP_HOST / SMTP_USER）", bool(os.environ.get("SMTP_HOST") and smtp_user)),
-        (f"送信元とSMTPユーザーが同じ（{sender.get('email') or '未設定'}）",
-         bool(sender.get("email")) and smtp_user == sender["email"].lower()),
-        ("メールのパスワード（SMTP_PASSWORD）", bool(os.environ.get("SMTP_PASSWORD"))),
-        ("本番送信（EMAIL_LIVE=true）", cfg["channels"]["email_live"]),
-    ]
+    checks = [("送信者の会社名・住所・メール", all(sender.get(k) for k in ("company", "address", "email")))]
+    if outreach.mail_mode() == "resend":
+        checks.append(("送信サービス Resend（RESEND_API_KEY）", True))
+    else:
+        smtp_user = (os.environ.get("SMTP_USER") or "").lower()
+        checks += [
+            ("SMTPサーバー（SMTP_HOST / SMTP_USER）", bool(os.environ.get("SMTP_HOST") and smtp_user)),
+            (f"送信元とSMTPユーザーが同じ（{sender.get('email') or '未設定'}）",
+             bool(sender.get("email")) and smtp_user == sender["email"].lower()),
+            ("メールのパスワード（SMTP_PASSWORD）", bool(os.environ.get("SMTP_PASSWORD"))),
+        ]
+    checks.append(("本番送信（EMAIL_LIVE=true）", cfg["channels"]["email_live"]))
     return render_template("mail.html", rows=rows, counts=counts, today=today, checks=checks, status=status,
                            statuses=MAIL_STATUSES, limit=cfg["channels"]["daily_limit"]["email"],
                            auto=os.environ.get("AUTO_DAILY_AT"), conn_result=_last_mail_test)
@@ -266,9 +269,9 @@ def settings_page():
         ("メール", [
             ("送信者の会社名・住所・メール", all(s.get(k) for k in ("company", "address", "email")),
              "SENDER_COMPANY / SENDER_ADDRESS / SENDER_EMAIL"),
-            ("SMTPサーバー", _set("SMTP_HOST", "SMTP_USER"), "SMTP_HOST / SMTP_USER"),
-            ("メールのパスワード", _set("SMTP_PASSWORD"), "SMTP_PASSWORD"),
-            ("返信の取り込み", _set("POP3_HOST") or _set("IMAP_HOST"), "POP3_HOST または IMAP_HOST"),
+            ("送信サービス（Resend）", _set("RESEND_API_KEY"), "RESEND_API_KEY（Railway では SMTP が使えないため）"),
+            ("返信の取り込み（ヘテムル）", (_set("POP3_HOST") or _set("IMAP_HOST")) and _set("SMTP_USER", "SMTP_PASSWORD"),
+             "POP3_HOST ＋ SMTP_USER / SMTP_PASSWORD"),
             ("本番送信", cfg["channels"]["email_live"], "EMAIL_LIVE=true"),
         ]),
         ("任意機能", [

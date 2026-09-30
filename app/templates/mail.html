@@ -21,7 +21,7 @@
 
 <form method="post" action="/mail/test" class="card">
   <div class="row"><button>接続テスト</button>
-    <span class="mut">メールは送らずに、送信（SMTP）と受信（POP3）のサーバーにログインできるかだけ確かめます</span></div>
+    <span class="mut">メールは送らずに、送信（Resend のドメイン認証、または SMTP のログイン）と受信（POP3）を確かめます</span></div>
   {% for r in conn_result %}<div>{{ r }}</div>{% endfor %}
 </form>
 

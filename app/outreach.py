@@ -17,6 +17,7 @@ from email import message_from_bytes
 from email.header import decode_header, make_header
 from email.mime.text import MIMEText
 
+import requests
 import yaml
 
 from . import bandit
@@ -180,18 +181,88 @@ def record_outcome(conn, shop_id, kind, note=None, touch_id=None):
 
 # ---------- メール送信 ----------
 
+def mail_mode():
+    """送信の方式。RESEND_API_KEY があれば Resend（HTTPS API）、なければ SMTP。
+    Railway の Hobby プランは SMTP の送信を禁止しているので、本番は Resend を使う。"""
+    return "resend" if os.environ.get("RESEND_API_KEY") else "smtp"
+
+
 def _check_sender(cfg):
     s = cfg["sender"]
     missing = [k for k in ("company", "address", "email") if not s.get(k)]
     if missing:
-        raise SystemExit(f"config/settings.yaml の sender.{', sender.'.join(missing)} が空です。"
+        raise SystemExit(f"送信者の {', '.join(missing)} が空です（SENDER_COMPANY / SENDER_ADDRESS / SENDER_EMAIL）。"
                          "特定電子メール法の表示義務のため、メールは送信しません。")
+    if mail_mode() == "resend":
+        return
     for k in ("SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD"):
         if not os.environ.get(k):
-            raise SystemExit(f".env の {k} が空です")
+            raise SystemExit(f"{k} が空です")
     if os.environ["SMTP_USER"].lower() != s["email"].lower():
         raise SystemExit(f"送信元アドレス（SENDER_EMAIL={s['email']}）とSMTPのユーザー（SMTP_USER={os.environ['SMTP_USER']}）が"
                          "違います。なりすまし判定で届かなくなるため、同じアドレスにそろえてください。")
+
+
+class FatalSendError(Exception):
+    """設定の問題など、続けても全件失敗する送信エラー。その場で送信を止める。"""
+
+
+class _ResendSender:
+    URL = "https://api.resend.com/emails"
+
+    def __init__(self, cfg):
+        # Resend は「名前 <アドレス>」をそのまま受け取り、文字コードの変換は Resend 側で行う
+        self.from_ = f"{cfg['sender']['company']} {cfg['sender']['person']} <{cfg['sender']['email']}>"
+        self.reply_to = cfg["sender"]["email"]
+        self.headers = {"Authorization": f"Bearer {os.environ['RESEND_API_KEY'].strip()}"}
+
+    def send(self, to, subject, body):
+        payload = {"from": self.from_, "to": [to], "subject": subject, "text": body, "reply_to": self.reply_to,
+                   "headers": {"List-Unsubscribe": f"<mailto:{self.reply_to}?subject=配信停止>"}}
+        for attempt in range(3):
+            r = requests.post(self.URL, json=payload, headers=self.headers, timeout=20)
+            if r.status_code == 429:          # 送りすぎ。少し待って再送
+                time.sleep(5 * (attempt + 1))
+                continue
+            if r.status_code in (401, 403):   # キーが違う・ドメイン未認証など。全件失敗するので止める
+                raise FatalSendError(f"Resend {r.status_code}: {r.text[:200]}")
+            if r.status_code >= 300:
+                raise ValueError(f"Resend {r.status_code}: {r.text[:200]}")
+            return
+        raise ValueError("Resend 429: 送信回数の上限に達しました（無料枠は1日100通）")
+
+    def close(self):
+        pass
+
+
+class _SmtpSender:
+    def __init__(self, cfg):
+        self.cfg = cfg
+        self.smtp = None
+
+    def send(self, to, subject, body):
+        s = self.cfg["sender"]
+        msg = MIMEText(body, "plain", "utf-8")
+        msg["Subject"] = subject
+        msg["From"] = email.utils.formataddr((f"{s['company']} {s['person']}", s["email"]))
+        msg["To"] = to
+        msg["Date"] = email.utils.formatdate(localtime=True)
+        msg["Message-ID"] = email.utils.make_msgid()
+        msg["List-Unsubscribe"] = f"<mailto:{s['email']}?subject=配信停止>"
+        if self.smtp is None:
+            try:
+                self.smtp = smtplib.SMTP_SSL(os.environ["SMTP_HOST"], int(os.environ.get("SMTP_PORT", 465)), timeout=30)
+                self.smtp.login(os.environ["SMTP_USER"], os.environ["SMTP_PASSWORD"])
+            except Exception as e:
+                raise FatalSendError(f"SMTPに接続できません: {e}")
+        try:
+            self.smtp.send_message(msg)
+        except (smtplib.SMTPRecipientsRefused, smtplib.SMTPDataError) as e:
+            raise ValueError(str(e))
+
+    def close(self):
+        if self.smtp:
+            self.smtp.quit()
 
 
 def send_emails(live=None):
@@ -204,8 +275,8 @@ def send_emails(live=None):
         rows = conn.execute(
             """SELECT t.id AS touch_id, t.variant_id, s.* FROM touches t JOIN shops s ON s.id=t.shop_id
                WHERE t.channel='email' AND t.status='queued' ORDER BY s.score DESC""").fetchall()
-    print(f"[email] 送信対象 {len(rows)}件（{'本番' if live else 'ドライラン：実際には送りません'}）")
-    smtp = None
+    print(f"[email] 送信対象 {len(rows)}件（{'本番・' + mail_mode() if live else 'ドライラン：実際には送りません'}）")
+    sender = (_ResendSender(cfg) if mail_mode() == "resend" else _SmtpSender(cfg)) if live else None
     try:
         for i, r in enumerate(rows):
             with db() as conn:
@@ -217,53 +288,67 @@ def send_emails(live=None):
                     continue
                 v = conn.execute("SELECT * FROM variants WHERE id=?", (r["variant_id"],)).fetchone()
             subject, body = render(v, r, "email", cfg)
+            with db() as conn:
+                conn.execute("UPDATE touches SET message=? WHERE id=?", (body, r["touch_id"]))
             if not live:
                 with db() as conn:
-                    conn.execute("UPDATE touches SET message=? WHERE id=?", (body, r["touch_id"]))
                     mark_sent(conn, r["touch_id"], "dryrun")
                 print(f"  (dry) {r['name']} <{r['email']}> 件名: {subject}")
                 continue
-            msg = MIMEText(body, "plain", "utf-8")
-            msg["Subject"] = subject
-            msg["From"] = email.utils.formataddr((f"{cfg['sender']['company']} {cfg['sender']['person']}",
-                                                  cfg["sender"]["email"]))
-            msg["To"] = r["email"]
-            msg["Date"] = email.utils.formatdate(localtime=True)
-            msg["Message-ID"] = email.utils.make_msgid()
-            msg["List-Unsubscribe"] = f"<mailto:{cfg['sender']['email']}?subject=配信停止>"
             try:
-                if smtp is None:
-                    smtp = smtplib.SMTP_SSL(os.environ["SMTP_HOST"], int(os.environ.get("SMTP_PORT", 465)))
-                    smtp.login(os.environ["SMTP_USER"], os.environ["SMTP_PASSWORD"])
-                smtp.send_message(msg)
+                sender.send(r["email"], subject, body)
                 with db() as conn:
-                    conn.execute("UPDATE touches SET message=? WHERE id=?", (body, r["touch_id"]))
                     mark_sent(conn, r["touch_id"])
                 print(f"  送信 {r['name']} <{r['email']}>")
-            except (smtplib.SMTPRecipientsRefused, smtplib.SMTPDataError) as e:
+            except ValueError as e:          # この宛先だけの失敗。次へ進む
                 with db() as conn:
                     mark_sent(conn, r["touch_id"], "failed", str(e)[:200])
+                print(f"  失敗 {r['name']} <{r['email']}>: {e}")
             if i < len(rows) - 1:
                 time.sleep(random.uniform(lo, hi))
     finally:
-        if smtp:
-            smtp.quit()
+        if sender:
+            sender.close()
+
+
+def _test_resend():
+    domain = (settings()["sender"].get("email") or "").rsplit("@", 1)[-1]
+    try:
+        r = requests.get("https://api.resend.com/domains", timeout=15,
+                         headers={"Authorization": f"Bearer {os.environ['RESEND_API_KEY'].strip()}"})
+    except requests.RequestException as e:
+        return f"✗ 送信（Resend）: 接続できませんでした（{e}）"
+    if r.status_code in (401, 403):
+        if "restricted" in r.text.lower():
+            return "– 送信（Resend）: 送信専用のAPIキーのため、ドメインの状態は確認できません（送信は可能です）"
+        return f"✗ 送信（Resend）: APIキーが違います（{r.status_code}）"
+    if r.status_code >= 300:
+        return f"✗ 送信（Resend）: {r.status_code} {r.text[:150]}"
+    found = next((d for d in r.json().get("data", []) if d.get("name") == domain), None)
+    if not found:
+        return f"✗ 送信（Resend）: {domain} がResendに登録されていません（Domains で追加してください）"
+    if found.get("status") != "verified":
+        return f"✗ 送信（Resend）: {domain} はまだ認証されていません（状態: {found.get('status')}）。DNSの追加・反映を待ってください"
+    return f"✓ 送信（Resend）: {domain} は認証済みです"
 
 
 def test_connection():
-    """メールは送らず、SMTP（送信）と POP3/IMAP（受信）にログインできるかだけ確かめる。"""
+    """メールは送らず、送信（Resend の認証状態 または SMTP のログイン）と受信（POP3/IMAP のログイン）を確かめる。"""
     results = []
     user, pw = os.environ.get("SMTP_USER"), os.environ.get("SMTP_PASSWORD")
-    if not (os.environ.get("SMTP_HOST") and user and pw):
-        return ["✗ 送信（SMTP）: SMTP_HOST / SMTP_USER / SMTP_PASSWORD のどれかが未設定です"]
-    try:
-        with smtplib.SMTP_SSL(os.environ["SMTP_HOST"], int(os.environ.get("SMTP_PORT", 465)), timeout=15) as s:
-            s.login(user, pw)
-        results.append(f"✓ 送信（SMTP）: {user} でログインできました")
-    except smtplib.SMTPAuthenticationError:
-        results.append(f"✗ 送信（SMTP）: {user} のパスワードが違います")
-    except Exception as e:
-        results.append(f"✗ 送信（SMTP）: 接続できませんでした（{e}）")
+    if mail_mode() == "resend":
+        results.append(_test_resend())
+    elif not (os.environ.get("SMTP_HOST") and user and pw):
+        results.append("✗ 送信（SMTP）: SMTP_HOST / SMTP_USER / SMTP_PASSWORD のどれかが未設定です")
+    else:
+        try:
+            with smtplib.SMTP_SSL(os.environ["SMTP_HOST"], int(os.environ.get("SMTP_PORT", 465)), timeout=15) as s:
+                s.login(user, pw)
+            results.append(f"✓ 送信（SMTP）: {user} でログインできました")
+        except smtplib.SMTPAuthenticationError:
+            results.append(f"✗ 送信（SMTP）: {user} のパスワードが違います")
+        except Exception as e:
+            results.append(f"✗ 送信（SMTP）: 接続できませんでした（{e}）")
     try:
         if os.environ.get("IMAP_HOST"):
             im = imaplib.IMAP4_SSL(os.environ["IMAP_HOST"], int(os.environ.get("IMAP_PORT", 993)))

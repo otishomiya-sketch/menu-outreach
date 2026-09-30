@@ -24,7 +24,8 @@ Instagram DM・LINE・メールで Menu Photo Pro を案内するアプリです
 | `DASHBOARD_PASSWORD` | **必須**。未設定だとダッシュボードは開かない |
 | `SENDER_COMPANY` / `SENDER_ADDRESS` / `SENDER_EMAIL` / `SENDER_CONTACT` | メールの送信者表示（公開リポジトリには書かない） |
 | `APIFY_API_TOKEN` | **必須**。店舗の収集と Instagram 解析 |
-| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASSWORD` | メール送信。`SMTP_USER` は `SENDER_EMAIL` と同じにする |
+| `RESEND_API_KEY` | メール送信（Resend）。Railway の Hobby プランは SMTP 送信が禁止のため、本番はこちら |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASSWORD` | SMTP で送る場合（`RESEND_API_KEY` がないとき）。POP3 の受信ログインにも使う |
 | `POP3_HOST` / `POP3_PORT`（または `IMAP_HOST`） | 返信・配信停止の自動取り込み |
 | `EMAIL_LIVE` | `true` でメールを本番送信（初期値はドライラン） |
 | `EMAIL_DAILY_LIMIT` など `<チャネル>_DAILY_LIMIT` | 1日の送信上限を上書き（新しいアドレスは少なめから） |
