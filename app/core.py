@@ -30,7 +30,7 @@ def settings():
     """settings.yaml を読み、環境変数で上書きする。
     リポジトリは公開なので、住所などの個人情報は Railway の環境変数に置く。"""
     cfg = yaml.safe_load((ROOT / "config" / "settings.yaml").read_text(encoding="utf-8"))
-    for key in ("person", "company", "address", "email", "contact"):
+    for key in ("person", "brand", "company", "address", "email", "contact"):
         if os.environ.get(f"SENDER_{key.upper()}"):
             cfg["sender"][key] = os.environ[f"SENDER_{key.upper()}"]
     if os.environ.get("EMAIL_LIVE"):

@@ -69,10 +69,15 @@ def render(variant, shop, channel, cfg=None):
     return subject, body
 
 
+def from_name(cfg):
+    """メールの差出人名。例: 株式会社オーティス Menu Photo Pro"""
+    return f"{cfg['sender']['company']} {cfg['sender']['brand']}".strip()
+
+
 def email_footer(cfg):
     s = cfg["sender"]
     lines = ["――――――――――――――――",
-             f"送信者：{s['company']}　{s['person']}",
+             f"送信者：{s['company']}（{s['brand']}）",
              f"住所：{s['address']}"]
     if s.get("contact"):
         lines.append(f"連絡先：{s['contact']}")
@@ -224,7 +229,7 @@ class _ResendSender:
 
     def __init__(self, cfg):
         # Resend は「名前 <アドレス>」をそのまま受け取り、文字コードの変換は Resend 側で行う
-        self.from_ = f"{cfg['sender']['company']} {cfg['sender']['person']} <{cfg['sender']['email']}>"
+        self.from_ = f"{from_name(cfg)} <{cfg['sender']['email']}>"
         self.reply_to = cfg["sender"]["email"]
         self.headers = {"Authorization": f"Bearer {os.environ['RESEND_API_KEY'].strip()}"}
 
@@ -256,7 +261,7 @@ class _SmtpSender:
         s = self.cfg["sender"]
         msg = MIMEText(body, "plain", "utf-8")
         msg["Subject"] = subject
-        msg["From"] = email.utils.formataddr((f"{s['company']} {s['person']}", s["email"]))
+        msg["From"] = email.utils.formataddr((from_name(self.cfg), s["email"]))
         msg["To"] = to
         msg["Date"] = email.utils.formatdate(localtime=True)
         msg["Message-ID"] = email.utils.make_msgid()

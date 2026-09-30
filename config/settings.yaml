@@ -5,6 +5,7 @@ sender:
   # 本番では Railway の環境変数 SENDER_COMPANY / SENDER_ADDRESS / SENDER_EMAIL / SENDER_CONTACT が優先される。
   # リポジトリは公開なので、住所などはここに書かず環境変数に置く。
   person: 大宮        # 本文の「オーティスの大宮です」
+  brand: Menu Photo Pro   # 差出人名とフッターに使う（差出人＝「会社名 ブランド名」）
   company: ""         # メール送信に必須（特定電子メール法の表示義務）
   address: ""         # メール送信に必須
   email: ""           # 送信元アドレス。SMTP_USER と同じにする
