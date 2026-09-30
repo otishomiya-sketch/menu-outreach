@@ -21,10 +21,42 @@ UA = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/53
                     "(KHTML, like Gecko) Chrome/126.0 Safari/537.36"}
 
 EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+EMAIL_FULL_RE = re.compile(r"[a-z0-9._%+-]+@[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}")
 LINE_RE = re.compile(r"(?:line\.me/R/ti/p/|page\.line\.me/)(@?[A-Za-z0-9_.-]+)|lin\.ee/([A-Za-z0-9]+)")
 REFUSAL_RE = re.compile(r"(営業|勧誘|セールス|広告)[^。\n]{0,20}(お断り|ご遠慮|禁止|控え)")
 OWNER_RE = re.compile(r"(?:オーナー|店主|代表(?:取締役)?|料理長|シェフ)[\s　:：]*([一-龥々]{1,4}(?:[\s　][一-龥々]{1,4})?)(?![一-龥々])")
 BAD_EMAIL_PARTS = ("example.", "sentry", "wixpress", ".png", ".jpg", ".gif", "@2x", "domain.")
+# 飲食店ではない宛先（役所・学校など）と、ホームページのひな形に入っている見本アドレス
+BAD_EMAIL_DOMAINS = (".lg.jp", ".go.jp", ".ed.jp", ".ac.jp", "example.com", "example.jp", "mail.com", "test.com")
+BAD_EMAIL_LOCALS = ("simple", "sample", "test", "dummy", "xxx", "your", "yourname", "name", "user", "noreply", "no-reply")
+FREE_MAIL = ("gmail.com", "yahoo.co.jp", "icloud.com", "outlook.jp", "outlook.com", "hotmail.com", "ezweb.ne.jp",
+             "docomo.ne.jp", "softbank.ne.jp", "i.softbank.jp", "au.com", "me.com", "ymail.ne.jp")
+
+
+def valid_email(e):
+    """送ってよい宛先か。形式が正しく、役所・見本アドレスでないこと。"""
+    e = (e or "").strip().lower()
+    if not EMAIL_FULL_RE.fullmatch(e) or any(b in e for b in BAD_EMAIL_PARTS):
+        return False
+    local, domain = e.rsplit("@", 1)
+    if local in BAD_EMAIL_LOCALS or any(domain == d.lstrip(".") or domain.endswith(d) for d in BAD_EMAIL_DOMAINS):
+        return False
+    return True
+
+
+def best_email(candidates, website=""):
+    """候補から1つ選ぶ。公式サイトと同じドメイン > 独自ドメイン > フリーメール。"""
+    good = sorted({e.strip().lower() for e in candidates if valid_email(e)})
+    if not good:
+        return None
+    host = urlparse(website or "").netloc.lower().removeprefix("www.") if website else ""
+
+    def rank(e):
+        domain = e.rsplit("@", 1)[1]
+        if host and (domain == host or host.endswith("." + domain) or domain.endswith("." + host)):
+            return 0
+        return 2 if domain in FREE_MAIL else 1
+    return min(good, key=lambda e: (rank(e), e))
 
 
 def dataset_id(run):
@@ -147,7 +179,7 @@ def run_search(keyword, location, limit, force=False):
             "address": item.get("address") or "",
             "phone": item.get("phone") or "",
             "website": website,
-            "email": _first(sorted(set(emails) | site["emails"])),
+            "email": best_email(set(emails) | site["emails"], website),
             "instagram": ig or site["instagram"],
             "line_id": site["line_id"],
             "rating": item.get("totalScore"),

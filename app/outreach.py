@@ -20,6 +20,7 @@ from email.mime.text import MIMEText
 import yaml
 
 from . import bandit
+from .collect import valid_email
 from .core import (CHANNELS, ROOT, STAGES, TERMINAL, db, is_suppressed, settings,
                    suppression_keys)
 
@@ -93,7 +94,7 @@ def seed_variants():
 def _available(shop):
     return {
         "instagram": bool(shop["instagram"]),
-        "email": bool(shop["email"]) and not shop["email_refused"],
+        "email": valid_email(shop["email"]) and not shop["email_refused"],
         "line": bool(shop["line_id"]),
     }
 
@@ -210,6 +211,9 @@ def send_emails(live=None):
             with db() as conn:
                 if is_suppressed(conn, *suppression_keys(r)):
                     mark_sent(conn, r["touch_id"], "skipped", "配信停止リスト")
+                    continue
+                if not valid_email(r["email"]):
+                    mark_sent(conn, r["touch_id"], "skipped", "宛先が不正")
                     continue
                 v = conn.execute("SELECT * FROM variants WHERE id=?", (r["variant_id"],)).fetchone()
             subject, body = render(v, r, "email", cfg)
