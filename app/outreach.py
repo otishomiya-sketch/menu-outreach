@@ -86,6 +86,9 @@ def email_footer(cfg):
     return "\n".join(lines)
 
 
+VARIANT_RENAMES = {"A-原文": "A-詳しく説明", "B-初回あいさつ・短め": "B-短め"}
+
+
 def seed_variants():
     """templates/variants.yaml の文面を DB に反映する。
     既にある文面（同じ name）は本文・件名・意図を yaml に合わせて更新し、状態（配信中・承認待ちなど）は変えない。
@@ -93,6 +96,10 @@ def seed_variants():
     data = yaml.safe_load((ROOT / "templates" / "variants.yaml").read_text(encoding="utf-8"))
     changed = []
     with db() as conn:
+        for old, new in VARIANT_RENAMES.items():   # 名前を変えた文面は、同じ行のまま名前だけ変える（成績・状態を引き継ぐ）
+            if conn.execute("SELECT 1 FROM variants WHERE name=?", (old,)).fetchone() and \
+                    not conn.execute("SELECT 1 FROM variants WHERE name=?", (new,)).fetchone():
+                conn.execute("UPDATE variants SET name=? WHERE name=?", (new, old))
         for v in data["variants"]:
             row = conn.execute("SELECT * FROM variants WHERE name=?", (v["name"],)).fetchone()
             if not row:
