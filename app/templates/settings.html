@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <h2>設定状況</h2>
+  <p class="mut">Railway の web → Variables で設定します。値は表示しません（設定されているかだけ）。変更後は Deploy を押してください。</p>
+</div>
+{% for title, items in groups %}
+<div class="card">
+  <h3>{{ title }}</h3>
+  <table>
+    {% for label, ok, var in items %}
+    <tr>
+      <td style="width:2em;color:var({{ '--ok' if ok else '--ng' }})">{{ '✓' if ok else '✗' }}</td>
+      <td>{{ label }}</td>
+      <td class="mut">{{ var }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+{% endfor %}
+<form method="post" action="/settings/test-notify" class="card row">
+  <button>通知をテスト送信</button>
+  <span class="mut">{% if request.args.get('sent') %}送信しました。届かない場合は「実行」画面のログか、設定を確認してください。{% else %}Discord / LINE に設定済みの通知先へテストメッセージを送ります{% endif %}</span>
+</form>
+{% endblock %}

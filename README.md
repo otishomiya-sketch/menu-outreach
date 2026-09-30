@@ -33,6 +33,7 @@ Instagram DM・LINE・メールで Menu Photo Pro を案内するアプリです
 | `COLLECT_AREAS` | 「実行」画面の収集エリアの初期値 |
 | `DISCORD_WEBHOOK_URL` または `LINE_CHANNEL_ACCESS_TOKEN` + `LINE_TO_USER_ID` | 毎朝の通知 |
 | `ANTHROPIC_API_KEY` | 任意。文面の自動提案・写真のAI採点 |
+| `USE_VISION` | `true` で写真のAI採点をオン（`ANTHROPIC_API_KEY` が必要） |
 | `IG_BD_USER_ID` / `IG_BD_ACCESS_TOKEN` | 任意。Instagram 公式API（Business Discovery）。未設定なら Apify で代用 |
 | `TZ=Asia/Tokyo` / `MENU_OUTREACH_DB=/data/outreach.db` | 設定済み |
 
@@ -46,6 +47,7 @@ Instagram DM・LINE・メールで Menu Photo Pro を案内するアプリです
 | 店舗リスト | 見込み度順の一覧。店を開いて反応（返信・無料体験・有料・お断り・停止希望）を記録 |
 | 改善 | 文面ごとの成績、提案文面の承認・停止、仮説の履歴 |
 | 実行 | 全自動・①収集・②解析・③送信だけ実行・④振り返りを今すぐ動かす。ログとエラーを表示 |
+| 設定 | 各機能の設定が済んでいるか（✓/✗）。通知のテスト送信 |
 
 ## 安全装置
 

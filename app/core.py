@@ -38,6 +38,8 @@ def settings():
     for ch in ("instagram", "line", "email"):   # 例: EMAIL_DAILY_LIMIT=20（新しいアドレスは少なめから始める）
         if os.environ.get(f"{ch.upper()}_DAILY_LIMIT"):
             cfg["channels"]["daily_limit"][ch] = int(os.environ[f"{ch.upper()}_DAILY_LIMIT"])
+    if os.environ.get("USE_VISION"):   # 写真のAI採点（Claude）
+        cfg["scoring"]["use_vision"] = os.environ["USE_VISION"].lower() in ("1", "true", "yes")
     if os.environ.get("COLLECT_AREAS"):
         cfg["collect"]["areas"] = [a.strip() for a in os.environ["COLLECT_AREAS"].split(",") if a.strip()]
     return cfg

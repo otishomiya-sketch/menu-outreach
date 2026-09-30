@@ -239,6 +239,47 @@ def improve_page():
     return render_template("improve.html", variants=variants, perf=perf, chs=CHANNELS, hyps=hyps, rep=rep, notes=notes)
 
 
+def _set(*names):
+    return all(os.environ.get(n) for n in names)
+
+
+@app.route("/settings")
+def settings_page():
+    """設定状況の一覧（値は表示しない）。"""
+    cfg = settings()
+    s = cfg["sender"]
+    groups = [
+        ("基本（必須）", [
+            ("ダッシュボードのパスワード", _set("DASHBOARD_PASSWORD"), "DASHBOARD_PASSWORD"),
+            ("店舗の収集・Instagram解析（Apify）", _set("APIFY_API_TOKEN"), "APIFY_API_TOKEN"),
+            ("毎朝の自動実行", _set("AUTO_DAILY_AT"), f"AUTO_DAILY_AT（{os.environ.get('AUTO_DAILY_AT') or '未設定'}）"),
+        ]),
+        ("メール", [
+            ("送信者の会社名・住所・メール", all(s.get(k) for k in ("company", "address", "email")),
+             "SENDER_COMPANY / SENDER_ADDRESS / SENDER_EMAIL"),
+            ("SMTPサーバー", _set("SMTP_HOST", "SMTP_USER"), "SMTP_HOST / SMTP_USER"),
+            ("メールのパスワード", _set("SMTP_PASSWORD"), "SMTP_PASSWORD"),
+            ("返信の取り込み", _set("POP3_HOST") or _set("IMAP_HOST"), "POP3_HOST または IMAP_HOST"),
+            ("本番送信", cfg["channels"]["email_live"], "EMAIL_LIVE=true"),
+        ]),
+        ("任意機能", [
+            ("Claude（文面の自動提案）", _set("ANTHROPIC_API_KEY"), "ANTHROPIC_API_KEY"),
+            ("写真のAI採点", _set("ANTHROPIC_API_KEY") and cfg["scoring"]["use_vision"], "ANTHROPIC_API_KEY ＋ USE_VISION=true"),
+            ("通知（Discord）", _set("DISCORD_WEBHOOK_URL"), "DISCORD_WEBHOOK_URL"),
+            ("通知（LINE）", _set("LINE_CHANNEL_ACCESS_TOKEN", "LINE_TO_USER_ID"), "LINE_CHANNEL_ACCESS_TOKEN / LINE_TO_USER_ID"),
+            ("Instagram公式API", _set("IG_BD_USER_ID", "IG_BD_ACCESS_TOKEN"), "IG_BD_USER_ID / IG_BD_ACCESS_TOKEN"),
+        ]),
+    ]
+    return render_template("settings.html", groups=groups)
+
+
+@app.post("/settings/test-notify")
+def test_notify():
+    from . import notify
+    notify.send("【Menu Photo Pro 営業】通知のテストです。これが届けば設定完了です。")
+    return redirect("/settings?sent=1")
+
+
 @app.route("/jobs", methods=["GET", "POST"])
 def jobs_page():
     if request.method == "POST":
