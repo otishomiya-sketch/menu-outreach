@@ -195,6 +195,15 @@ def mail_test():
     return redirect("/mail")
 
 
+@app.post("/mail/test-send")
+def mail_test_send():
+    try:
+        _last_mail_test[:] = [outreach.send_test_email()]
+    except SystemExit as e:   # 送信者情報の不足など
+        _last_mail_test[:] = [f"✗ {e}"]
+    return redirect("/mail")
+
+
 @app.route("/leads")
 def leads():
     pref, q, stage = request.args.get("pref", ""), request.args.get("q", ""), request.args.get("stage", "")

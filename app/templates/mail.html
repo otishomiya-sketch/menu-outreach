@@ -24,6 +24,10 @@
     <span class="mut">メールは送らずに、送信（Resend のドメイン認証、または SMTP のログイン）と受信（POP3）を確かめます</span></div>
   {% for r in conn_result %}<div>{{ r }}</div>{% endfor %}
 </form>
+<form method="post" action="/mail/test-send" class="card row">
+  <button class="sub">自分宛てにテスト送信</button>
+  <span class="mut">送信待ちの文面を1通、送信元アドレス（自分）宛てに送ります。店には送りません</span>
+</form>
 
 <form class="row card">
   <select name="status">

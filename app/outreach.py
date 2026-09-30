@@ -286,8 +286,17 @@ def send_emails(live=None):
         rows = conn.execute(
             """SELECT t.id AS touch_id, t.variant_id, s.* FROM touches t JOIN shops s ON s.id=t.shop_id
                WHERE t.channel='email' AND t.status='queued' ORDER BY s.score DESC""").fetchall()
+    if live:   # 1日の上限を守る（前日までの送信待ちが残っていても、今日送るのは上限まで）
+        with db() as conn:
+            sent_today = conn.execute("""SELECT COUNT(*) FROM touches WHERE channel='email' AND status='sent'
+                                         AND date(sent_at)=date('now','localtime')""").fetchone()[0]
+        room = max(0, cfg["channels"]["daily_limit"]["email"] - sent_today)
+        if len(rows) > room:
+            print(f"[email] 送信待ち {len(rows)}件のうち、今日の上限の残り {room}件だけ送ります")
+            rows = rows[:room]
     print(f"[email] 送信対象 {len(rows)}件（{'本番・' + mail_mode() if live else 'ドライラン：実際には送りません'}）")
     sender = (_ResendSender(cfg) if mail_mode() == "resend" else _SmtpSender(cfg)) if live else None
+    done_shops = set()   # 同じ店に2通送らない
     try:
         for i, r in enumerate(rows):
             with db() as conn:
@@ -297,7 +306,12 @@ def send_emails(live=None):
                 if not valid_email(r["email"]):
                     mark_sent(conn, r["touch_id"], "skipped", "宛先が不正")
                     continue
+                if r["id"] in done_shops or conn.execute(
+                        "SELECT 1 FROM touches WHERE shop_id=? AND channel='email' AND status='sent'", (r["id"],)).fetchone():
+                    mark_sent(conn, r["touch_id"], "skipped", "同じ店に送信済み")
+                    continue
                 v = conn.execute("SELECT * FROM variants WHERE id=?", (r["variant_id"],)).fetchone()
+            done_shops.add(r["id"])
             subject, body = render(v, r, "email", cfg)
             with db() as conn:
                 conn.execute("UPDATE touches SET message=? WHERE id=?", (body, r["touch_id"]))
@@ -320,6 +334,28 @@ def send_emails(live=None):
     finally:
         if sender:
             sender.close()
+
+
+def send_test_email():
+    """送信待ちの先頭の店の文面で、送信元アドレス（自分）宛てにテストメールを1通送る。店には送らない。"""
+    cfg = settings()
+    _check_sender(cfg)
+    to = cfg["sender"]["email"]
+    with db() as conn:
+        r = conn.execute("""SELECT t.variant_id, s.* FROM touches t JOIN shops s ON s.id=t.shop_id
+                            WHERE t.channel='email' AND t.status IN ('queued','dryrun') ORDER BY t.id DESC LIMIT 1""").fetchone()
+        if not r:
+            return "✗ 送信待ちのメールがないため、テストの文面を作れません"
+        v = conn.execute("SELECT * FROM variants WHERE id=?", (r["variant_id"],)).fetchone()
+    subject, body = render(v, r, "email", cfg)
+    sender = _ResendSender(cfg) if mail_mode() == "resend" else _SmtpSender(cfg)
+    try:
+        sender.send(to, "【テスト】" + subject, f"（これはテスト送信です。実際は {r['name']} <{r['email']}> 宛てに届きます）\n\n" + body)
+    except Exception as e:
+        return f"✗ テスト送信に失敗しました（{e}）"
+    finally:
+        sender.close()
+    return f"✓ {to} 宛てにテストメールを送りました。受信箱（迷惑メールフォルダも）を確認してください"
 
 
 def _test_resend():
