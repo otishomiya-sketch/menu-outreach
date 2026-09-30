@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row between">
+  <h2>{{ '📷 Instagram DM' if ch == 'instagram' else '💬 LINE' }}</h2>
+  <span class="mut">今日 {{ done }} / {{ limit }} 件送信・残り {{ left }} 件</span>
+</div>
+{% if done >= limit %}
+<div class="card warn">今日の上限に達しました。アカウント保護のため、続きは明日にしてください。</div>
+{% endif %}
+
+<div class="card">
+  <div class="row between">
+    <div>
+      <h3 style="margin:0">{{ t.name }} <a href="/shop/{{ t.sid }}" class="mut">詳細</a></h3>
+      <div class="mut">{{ t.prefecture or '' }} ・ {{ t.category or '' }} ・ 見込み度 {{ t.score }} ・ 文面 {{ t.vname }}</div>
+      {% if t.posts_30d is not none %}
+      <div class="mut">30日の投稿 {{ t.posts_30d }}本・最終投稿 {{ t.days_since_last }}日前・写真の弱点度 {{ '%.2f'|format(t.photo_weakness or 0) }}
+        {% if t.followers %}・フォロワー {{ t.followers }}{% endif %}{% if t.vision_note %}・{{ t.vision_note }}{% endif %}</div>
+      {% endif %}
+    </div>
+    {% if ch == 'instagram' %}<a class="btn sub" target="_blank" href="https://www.instagram.com/{{ t.instagram }}/">プロフィールを見る</a>{% endif %}
+  </div>
+  {% if t.thumbs %}
+  <div class="thumbs">{% for u in t.thumbs.split('\n') %}<img src="{{ u }}" referrerpolicy="no-referrer" loading="lazy">{% endfor %}</div>
+  {% endif %}
+</div>
+
+<form method="post" action="/touch/{{ t.id }}" class="card">
+  <div class="row" style="margin-bottom:8px">
+    <label class="mut">オーナー名（分かれば。宛名に入ります）</label>
+    <input name="owner" value="{{ t.owner_name or '' }}" placeholder="例: 山田 太郎">
+    <button class="sub" name="action" value="owner">宛名を更新</button>
+  </div>
+  <textarea id="msg" name="message">{{ t.message }}</textarea>
+  <div class="row" style="margin-top:10px">
+    <button type="button" onclick="copyOpen()">① コピーして{{ 'DM' if ch == 'instagram' else 'LINE' }}を開く</button>
+    <button class="ok" name="action" value="sent">② 送信した → 次へ</button>
+    <button class="sub" name="action" value="skip">スキップ</button>
+    <button class="sub" name="action" value="unreachable">送れない（DM不可・アカウントなし）</button>
+  </div>
+  <p class="mut">開いた画面にメッセージを貼り付けて、内容を確認してから送信してください。キーボード: C = コピーして開く / S = 送信した</p>
+</form>
+
+<script>
+function copyOpen() {
+  const m = document.getElementById('msg');
+  navigator.clipboard.writeText(m.value).then(() => window.open({{ url|tojson }}, '_blank'));
+}
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') return;
+  if (e.key === 'c') copyOpen();
+  if (e.key === 's') document.querySelector('button[value=sent]').click();
+});
+</script>
+{% endblock %}

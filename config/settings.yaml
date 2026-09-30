@@ -1,12 +1,14 @@
 # Menu Photo Pro 営業アプリ 設定
-# APIキー類は .env に書く（このファイルには書かない）
+# APIキー・パスワード類は .env（本番は Railway の環境変数）に書く。このファイルには書かない
 
 sender:
-  person: 大宮                     # 本文の「オーティスの大宮です」
-  company: ""                      # 必須（メール送信時） 特定電子メール法の表示義務（メールのみ）: 送信者の氏名または名称
-  address: ""                      # 必須（メール送信時）: 送信者の住所。空だとメールは送信されません
-  email: ""                        # 送信元メールアドレス（SMTPのユーザーと同じにする）
-  contact: ""                      # 問い合わせ先（電話番号 または URL）
+  # 本番では Railway の環境変数 SENDER_COMPANY / SENDER_ADDRESS / SENDER_EMAIL / SENDER_CONTACT が優先される。
+  # リポジトリは公開なので、住所などはここに書かず環境変数に置く。
+  person: 大宮        # 本文の「オーティスの大宮です」
+  company: ""         # メール送信に必須（特定電子メール法の表示義務）
+  address: ""         # メール送信に必須
+  email: ""           # 送信元アドレス。SMTP_USER と同じにする
+  contact: ""         # 任意: 電話番号 または URL
 
 service:
   trial_url: "https://7ayyryczawpyuggappqsqqd.streamlit.app/?openExternalBrowser=1"
@@ -17,7 +19,7 @@ service:
 # ---- ①集める（Googleマップ / Apify） ----
 collect:
   keywords: [居酒屋, カフェ, ラーメン, 焼肉, イタリアン, 和食, 中華料理, 洋食, 定食, ベーカリー, スイーツ, バー]
-  # 空なら47都道府県すべて。まずは1〜2エリアで試すこと（Apifyは件数課金）
+  # 「実行」画面の①収集の初期値（環境変数 COLLECT_AREAS で上書き）
   areas: [東京都渋谷区, 大阪市北区]
   limit_per_search: 40
   # 毎朝の自動収集: nationwide = 47都道府県 × keywords を順番に / areas = 上の areas だけ

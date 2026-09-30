@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <div class="row between">
+    <h2 style="margin:0">文面の成績</h2>
+    <form method="post" action="/jobs"><input type="hidden" name="name" value="reflect">
+      <button>今すぐ振り返る（集計・引退判定・新しい文面の提案）</button></form>
+  </div>
+  {% if rep %}<p class="mut">前回 {{ rep.at }}: {{ notes|join(' / ') }}</p>{% endif %}
+  <div class="tw">
+    <table>
+      <tr><th>文面</th><th>状態</th>
+        {% for ch in chs %}<th>{{ ch|ja }}<br><span class="mut">送信・反応率・最良の確率</span></th>{% endfor %}<th></th></tr>
+      {% for v in variants %}
+      <tr>
+        <td><b>{{ v.name }}</b></td>
+        <td>{{ v.status|ja }}</td>
+        {% for ch in chs %}{% set p = perf[ch].get(v.id) %}
+        <td>{% if p %}{{ p.sent }}件・{{ '%.1f%%'|format(100 * p.rate) if p.rate is not none else '-' }}・{{ '%.0f%%'|format(100 * p.p_best) }}{% else %}-{% endif %}</td>
+        {% endfor %}
+        <td>
+          <form method="post" class="row"><input type="hidden" name="vid" value="{{ v.id }}">
+            {% if v.status == 'proposed' %}
+            <button class="ok" name="action" value="active">承認して配信</button>
+            <button class="sub" name="action" value="rejected">却下</button>
+            {% elif v.status == 'active' %}
+            <button class="sub" name="action" value="retired">停止</button>
+            {% else %}
+            <button class="sub" name="action" value="active">再開</button>
+            {% endif %}
+          </form>
+        </td>
+      </tr>
+      <tr><td colspan="{{ 3 + chs|length }}">
+        <details><summary class="mut">本文と意図を見る</summary><p class="mut">{{ v.rationale or '' }}</p><pre>{{ v.body }}</pre></details>
+      </td></tr>
+      {% endfor %}
+    </table>
+  </div>
+</div>
+<div class="card tw">
+  <h2>仮説</h2>
+  <table>
+    <tr><th>日付</th><th>仮説</th><th>状態</th><th>結果</th></tr>
+    {% for h in hyps %}
+    <tr><td>{{ h.created_at[:10] }}</td><td><b>{{ h.title }}</b><br><span class="mut">{{ h.proposal }}</span></td><td>{{ h.status|ja }}</td><td>{{ h.result or '' }}</td></tr>
+    {% endfor %}
+  </table>
+</div>
+{% endblock %}

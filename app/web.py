@@ -1,16 +1,20 @@
-"""ダッシュボード（ローカル専用 http://127.0.0.1:8765）。
+"""ダッシュボード。画面のHTMLは app/templates/ にある。
 
 - 送信キュー（Instagram / LINE）: 1件ずつ「コピーして開く」→ 送る → 「送信した」
+- メール: 自動送信の設定チェックと送信状況
 - 店舗リスト: 見込み度順。店ごとに反応（返信・無料体験・有料・お断り）を記録
 - 改善: 文面ごとの成績、提案された文面の承認
+- 実行: 収集・解析・送信・振り返りを裏で動かす
+
+本番（PORT あり）では DASHBOARD_PASSWORD のベーシック認証が必須。
 """
 import hmac
 import json
 import os
 
-from flask import Flask, abort, redirect, render_template_string, request, send_from_directory, url_for
+from flask import Flask, abort, redirect, render_template, request, send_from_directory, url_for
 
-from . import bandit, improve, jobs, outreach
+from . import bandit, jobs, outreach
 from .core import CHANNELS, DB_PATH, ROOT, db, settings
 
 app = Flask(__name__)
@@ -30,8 +34,10 @@ JA = {
     "active": "配信中", "proposed": "承認待ち", "retired": "停止", "rejected": "却下",
     "testing": "検証中", "adopted": "採用",
     # 実行
-    "collect": "①収集", "enrich": "②Instagram解析", "daily": "③毎日の実行", "auto": "全自動", "reflect": "④振り返り",
+    "collect": "①収集", "enrich": "②Instagram解析", "daily": "③送信だけ実行", "auto": "全自動", "reflect": "④振り返り",
 }
+STAGE_FILTER = ["new", "contacted", "replied", "trial", "paid", "declined", "unsubscribed", "unreachable"]
+MAIL_STATUSES = ["queued", "dryrun", "sent", "failed", "skipped"]
 
 
 @app.template_filter("ja")
@@ -39,10 +45,13 @@ def ja(value):
     return JA.get(value, value)
 
 
+@app.context_processor
+def _demo_flag():
+    return {"is_demo": DB_PATH.name == "demo.db"}
+
 
 @app.before_request
 def _auth():
-    """DASHBOARD_PASSWORD があればベーシック認証。サーバー上（PORT あり）でパスワード未設定なら開かない。"""
     if request.path == "/healthz":
         return None
     pw = os.environ.get("DASHBOARD_PASSWORD")
@@ -57,35 +66,6 @@ def _auth():
     return ("ログインが必要です", 401, {"WWW-Authenticate": 'Basic realm="menu-outreach"'})
 
 
-BASE = """<!doctype html><html lang="ja"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1"><title>Menu Photo Pro 営業</title>
-<style>
-:root{--bg:#f7f6f3;--fg:#1d1d1f;--mut:#6b6b70;--card:#fff;--line:#e4e2dd;--acc:#c2410c;--ok:#15803d;--ng:#b91c1c}
-@media (prefers-color-scheme:dark){:root{--bg:#161616;--fg:#eee;--mut:#9a9a9f;--card:#222;--line:#333;--acc:#fb923c;--ok:#4ade80;--ng:#f87171}}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 -apple-system,"Hiragino Sans",sans-serif}
-nav{display:flex;gap:16px;padding:12px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap}nav a{color:var(--fg);text-decoration:none;font-weight:600}
-nav a.brand{color:var(--acc)}main{max-width:1100px;margin:0 auto;padding:16px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:16px}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px}
-.num{font-size:28px;font-weight:700}.mut{color:var(--mut);font-size:13px}
-table{width:100%;border-collapse:collapse;font-size:14px}td,th{padding:6px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
-.tw{overflow-x:auto}button,.btn{background:var(--acc);color:#fff;border:0;border-radius:8px;padding:9px 14px;font-weight:600;cursor:pointer;text-decoration:none;display:inline-block;font-size:14px}
-button.sub,.btn.sub{background:transparent;color:var(--fg);border:1px solid var(--line)}button.ok{background:var(--ok)}button.ng{background:var(--ng)}
-textarea{width:100%;min-height:340px;font-family:inherit;font-size:14px;line-height:1.6;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg)}
-.thumbs{display:flex;gap:6px;flex-wrap:wrap}.thumbs img{width:96px;height:96px;object-fit:cover;border-radius:6px}
-.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.pill{font-size:12px;padding:2px 8px;border-radius:99px;border:1px solid var(--line)}
-input,select{padding:7px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--fg)}
-pre{white-space:pre-wrap;font-size:13px}
-</style></head><body>
-<nav><a class="brand" href="/">Menu Photo Pro 営業</a><a href="/queue/instagram">Instagram DM</a><a href="/queue/line">LINE</a><a href="/mail">メール</a>
-<a href="/leads">店舗リスト</a><a href="/improve">改善</a><a href="/jobs">実行</a>
-{% if is_demo %}<span class="pill" style="margin-left:auto;border-color:var(--acc);color:var(--acc)">デモデータ表示中（架空の店舗・実際には送信されません）</span>{% endif %}</nav><main>{% block c %}{% endblock %}</main></body></html>"""
-
-
-def page(body, **kw):
-    return render_template_string(BASE.replace("{% block c %}{% endblock %}", body), **kw)
-
-
 @app.route("/healthz")
 def healthz():
     return "ok"
@@ -94,11 +74,6 @@ def healthz():
 @app.route("/demo-img/<path:name>")
 def demo_img(name):
     return send_from_directory(ROOT / "data" / "demo", name)
-
-
-@app.context_processor
-def _demo_flag():
-    return {"is_demo": DB_PATH.name == "demo.db"}
 
 
 @app.route("/")
@@ -111,22 +86,8 @@ def home():
                WHERE planned_on=date('now','localtime') GROUP BY channel""")}
         total = c.execute("SELECT COUNT(*) FROM shops").fetchone()[0]
         scored = c.execute("SELECT COUNT(*) FROM shops WHERE score IS NOT NULL").fetchone()[0]
-    return page("""
-<div class="card"><h2 style="margin-top:0">今日の送信</h2><div class="grid">
-{% for ch,label in [('instagram','Instagram DM（手動）'),('line','LINE（手動）'),('email','メール（自動）')] %}
- {% set t = today.get(ch, {}) %}<div><div class="mut">{{label}}</div>
- <div class="num">{{ t.s or 0 }} <span class="mut">/ {{ limits[ch] }}</span></div>
- <div class="mut">残りキュー {{ t.q or 0 }}件{% if t.d %}・ドライラン {{t.d}}件{% endif %}</div>
- {% if ch != 'email' and t.q %}<a class="btn" href="/queue/{{ch}}">送信を始める</a>{% endif %}</div>
-{% endfor %}</div>
-<form method="post" action="/plan" style="margin-top:12px"><button>今日の送信リストを作る</button>
-<span class="mut">見込み度の高い順に、上限まで積みます（{{ 'メールは本番送信' if live else 'メールはドライラン' }}）</span></form></div>
-<div class="card"><h2 style="margin-top:0">全体</h2><div class="grid">
-<div><div class="mut">収集した店</div><div class="num">{{total}}</div><div class="mut">スコア済み {{scored}}</div></div>
-{% for st,label in [('contacted','送信済み'),('replied','返信あり'),('trial','無料体験'),('paid','有料契約'),('declined','お断り'),('unsubscribed','配信停止')] %}
-<div><div class="mut">{{label}}</div><div class="num">{{ funnel.get(st,0) }}</div></div>{% endfor %}
-</div></div>""", funnel=funnel, today=today, total=total, scored=scored,
-                limits=cfg["channels"]["daily_limit"], live=cfg["channels"]["email_live"])
+    return render_template("home.html", funnel=funnel, today=today, total=total, scored=scored,
+                           limits=cfg["channels"]["daily_limit"], live=cfg["channels"]["email_live"])
 
 
 @app.post("/plan")
@@ -139,7 +100,9 @@ def open_url(channel, shop):
     if channel == "instagram":
         return f"https://ig.me/m/{shop['instagram']}"
     lid = shop["line_id"] or ""
-    return "https://" + lid if lid.startswith("lin.ee/") else f"https://line.me/R/ti/p/{lid if lid.startswith('@') else '@' + lid}"
+    if lid.startswith("lin.ee/"):
+        return "https://" + lid
+    return "https://line.me/R/ti/p/" + (lid if lid.startswith("@") else "@" + lid)
 
 
 @app.route("/queue/<channel>")
@@ -158,35 +121,8 @@ def queue(channel):
                             AND date(sent_at)=date('now','localtime')""", (channel,)).fetchone()[0]
     limit = settings()["channels"]["daily_limit"][channel]
     if not t:
-        return page("""<div class="card"><h2>キューは空です</h2><p>今日の送信 {{done}} / {{limit}} 件。
-<form method="post" action="/plan"><button>今日の送信リストを作る</button></form></p></div>""", done=done, limit=limit)
-    return page("""
-<div class="row" style="justify-content:space-between"><h2>{{ '📷 Instagram DM' if ch=='instagram' else '💬 LINE' }}</h2>
-<span class="mut">今日 {{done}} / {{limit}} 件送信・残り {{left}} 件</span></div>
-{% if done >= limit %}<div class="card" style="border-color:var(--ng)">今日の上限に達しました。アカウント保護のため、続きは明日にしてください。</div>{% endif %}
-<div class="card"><div class="row" style="justify-content:space-between"><div>
-<h3 style="margin:0">{{t.name}} <a href="/shop/{{t.sid}}" class="mut">詳細</a></h3>
-<div class="mut">{{t.prefecture or ''}} ・ {{t.category or ''}} ・ 見込み度 {{t.score}} ・ 文面 {{t.vname}}</div>
-{% if t.posts_30d is not none %}<div class="mut">30日の投稿 {{t.posts_30d}}本・最終投稿 {{t.days_since_last}}日前・写真の弱点度 {{ '%.2f'|format(t.photo_weakness or 0) }}
-{% if t.followers %}・フォロワー {{t.followers}}{% endif %} {% if t.vision_note %}・{{t.vision_note}}{% endif %}</div>{% endif %}
-</div>{% if ch=='instagram' %}<a class="btn sub" target="_blank" href="https://www.instagram.com/{{t.instagram}}/">プロフィールを見る</a>{% endif %}</div>
-{% if t.thumbs %}<div class="thumbs" style="margin-top:10px">{% for u in t.thumbs.split('\n') %}<img src="{{u}}" referrerpolicy="no-referrer" loading="lazy">{% endfor %}</div>{% endif %}
-</div>
-<form method="post" action="/touch/{{t.id}}" class="card">
-<div class="row" style="margin-bottom:8px"><label class="mut">オーナー名（分かれば。宛名に入ります）</label>
-<input name="owner" value="{{t.owner_name or ''}}" placeholder="例: 山田 太郎"><button class="sub" name="action" value="owner">宛名を更新</button></div>
-<textarea id="msg" name="message">{{t.message}}</textarea>
-<div class="row" style="margin-top:10px">
-<button type="button" onclick="copyOpen()">① コピーして{{ 'DM' if ch=='instagram' else 'LINE' }}を開く</button>
-<button class="ok" name="action" value="sent">② 送信した → 次へ</button>
-<button class="sub" name="action" value="skip">スキップ</button>
-<button class="sub" name="action" value="unreachable">送れない（DM不可・アカウントなし）</button>
-</div><p class="mut">開いた画面にメッセージを貼り付けて、内容を確認してから送信してください。キーボード: C = コピーして開く / S = 送信した</p></form>
-<script>
-function copyOpen(){const m=document.getElementById('msg');navigator.clipboard.writeText(m.value).then(()=>{window.open({{ url|tojson }},'_blank')});}
-document.addEventListener('keydown',e=>{if(e.target.tagName==='TEXTAREA'||e.target.tagName==='INPUT')return;
- if(e.key==='c')copyOpen(); if(e.key==='s')document.querySelector('button[value=sent]').click();});
-</script>""", t=t, ch=channel, left=left, done=done, limit=limit, url=open_url(channel, t))
+        return render_template("queue_empty.html", done=done, limit=limit)
+    return render_template("queue.html", t=t, ch=channel, left=left, done=done, limit=limit, url=open_url(channel, t))
 
 
 @app.post("/touch/<int:tid>")
@@ -218,12 +154,13 @@ def touch_action(tid):
 def mail_page():
     cfg = settings()
     status = request.args.get("status", "")
-    sql = """SELECT t.*, s.name, s.email, s.id AS sid, s.score, v.name AS vname, v.subject
+    sql = """SELECT t.*, s.name, s.email, s.id AS sid, v.name AS vname, v.subject
              FROM touches t JOIN shops s ON s.id=t.shop_id LEFT JOIN variants v ON v.id=t.variant_id
              WHERE t.channel='email'"""
     args = []
     if status:
-        sql += " AND t.status=?"; args.append(status)
+        sql += " AND t.status=?"
+        args.append(status)
     sql += " ORDER BY t.id DESC LIMIT 200"
     with db() as c:
         rows = c.execute(sql, args).fetchall()
@@ -231,32 +168,19 @@ def mail_page():
             "SELECT status, COUNT(*) n FROM touches WHERE channel='email' GROUP BY status")}
         today = c.execute("""SELECT COUNT(*) FROM touches WHERE channel='email' AND status='sent'
                              AND date(sent_at)=date('now','localtime')""").fetchone()[0]
-    s_ = cfg["sender"]
+    sender = cfg["sender"]
+    smtp_user = (os.environ.get("SMTP_USER") or "").lower()
     checks = [
-        ("送信者の会社名・住所・メール", all(s_.get(k) for k in ("company", "address", "email"))),
-        ("SMTPサーバー（SMTP_HOST / SMTP_USER）", bool(os.environ.get("SMTP_HOST") and os.environ.get("SMTP_USER"))),
-        (f"送信元とSMTPユーザーが同じ（{s_.get('email') or '未設定'}）",
-         bool(s_.get("email")) and (os.environ.get("SMTP_USER") or "").lower() == (s_.get("email") or "").lower()),
+        ("送信者の会社名・住所・メール", all(sender.get(k) for k in ("company", "address", "email"))),
+        ("SMTPサーバー（SMTP_HOST / SMTP_USER）", bool(os.environ.get("SMTP_HOST") and smtp_user)),
+        (f"送信元とSMTPユーザーが同じ（{sender.get('email') or '未設定'}）",
+         bool(sender.get("email")) and smtp_user == sender["email"].lower()),
         ("メールのパスワード（SMTP_PASSWORD）", bool(os.environ.get("SMTP_PASSWORD"))),
         ("本番送信（EMAIL_LIVE=true）", cfg["channels"]["email_live"]),
     ]
-    subj = lambda r: (r["subject"] or "").replace("{shop_name}", r["name"])
-    return page("""<div class="card"><h2 style="margin-top:0">✉️ メール（自動送信）</h2>
-<p>メールは毎朝 {{ auto or '（自動実行オフ）' }} の自動実行で、見込み度の高い店から1日 {{limit}} 件まで自動で送られます。ボタン操作は不要です。
-今すぐ送りたいときは「実行」→「③毎日の実行」。</p>
-<div class="grid">{% for label, ok in checks %}<div><span style="color:var({{ '--ok' if ok else '--ng' }})">{{ '✓' if ok else '✗' }}</span> {{label}}</div>{% endfor %}</div>
-<p class="mut">{% if checks|selectattr(1)|list|length == checks|length %}すべて設定済み：本番送信されます。{% else %}✗ がある間は<b>ドライラン</b>（文面を作るだけで、実際には送りません）。{% endif %}</p>
-<div class="grid"><div><div class="mut">今日の送信</div><div class="num">{{today}} <span class="mut">/ {{limit}}</span></div></div>
-{% for st in ['queued','dryrun','sent','failed','skipped'] %}<div><div class="mut">{{st|ja}}</div><div class="num">{{ counts.get(st, 0) }}</div></div>{% endfor %}</div></div>
-<form class="row card"><select name="status"><option value="">すべて</option>{% for st in ['queued','dryrun','sent','failed','skipped'] %}<option value="{{st}}" {{'selected' if st==status}}>{{st|ja}}</option>{% endfor %}</select><button>絞り込み</button></form>
-<div class="card tw"><table><tr><th>日時</th><th>店名・宛先</th><th>文面</th><th>状態</th></tr>
-{% for r in rows %}<tr><td class="mut">{{ r.sent_at or r.planned_on }}</td>
-<td><a href="/shop/{{r.sid}}">{{r.name}}</a><br><span class="mut">{{r.email}}</span></td>
-<td>{{r.vname}}<details><summary class="mut">件名と本文を見る</summary><p><b>{{ subj(r) }}</b></p><pre>{{r.message}}</pre></details></td>
-<td>{{r.status|ja}} <span class="mut">{{r.error or ''}}</span></td></tr>
-{% else %}<tr><td colspan="4" class="mut">まだありません。「今日の送信リストを作る」か毎朝の自動実行で作られます。</td></tr>{% endfor %}</table></div>""",
-                rows=rows, counts=counts, today=today, checks=checks, status=status, subj=subj,
-                limit=cfg["channels"]["daily_limit"]["email"], auto=os.environ.get("AUTO_DAILY_AT"))
+    return render_template("mail.html", rows=rows, counts=counts, today=today, checks=checks, status=status,
+                           statuses=MAIL_STATUSES, limit=cfg["channels"]["daily_limit"]["email"],
+                           auto=os.environ.get("AUTO_DAILY_AT"))
 
 
 @app.route("/leads")
@@ -264,24 +188,19 @@ def leads():
     pref, q, stage = request.args.get("pref", ""), request.args.get("q", ""), request.args.get("stage", "")
     sql, args = "SELECT * FROM shops WHERE 1=1", []
     if pref:
-        sql += " AND prefecture=?"; args.append(pref)
+        sql += " AND prefecture=?"
+        args.append(pref)
     if stage:
-        sql += " AND stage=?"; args.append(stage)
+        sql += " AND stage=?"
+        args.append(stage)
     if q:
-        sql += " AND (name LIKE ? OR category LIKE ?)"; args += [f"%{q}%"] * 2
+        sql += " AND (name LIKE ? OR category LIKE ?)"
+        args += [f"%{q}%"] * 2
     sql += " ORDER BY score DESC NULLS LAST LIMIT 300"
     with db() as c:
         rows = c.execute(sql, args).fetchall()
         prefs = [r[0] for r in c.execute("SELECT DISTINCT prefecture FROM shops WHERE prefecture IS NOT NULL ORDER BY 1")]
-    return page("""<form class="row card"><input name="q" value="{{q}}" placeholder="店名・業種">
-<select name="pref"><option value="">都道府県</option>{% for p in prefs %}<option {{'selected' if p==pref}}>{{p}}</option>{% endfor %}</select>
-<select name="stage"><option value="">ステージ</option>{% for s in ['new','contacted','replied','trial','paid','declined','unsubscribed','unreachable'] %}<option value="{{s}}" {{'selected' if s==stage}}>{{s|ja}}</option>{% endfor %}</select>
-<button>絞り込み</button></form>
-<div class="card tw"><table><tr><th>見込み度</th><th>店名</th><th>地域・業種</th><th>活発度</th><th>写真の弱点</th><th>連絡先</th><th>ステージ</th></tr>
-{% for s in rows %}<tr><td><b>{{s.score if s.score is not none else '-'}}</b></td><td><a href="/shop/{{s.id}}">{{s.name}}</a></td>
-<td class="mut">{{s.prefecture or ''}} {{s.category or ''}}</td><td>{{ '%.2f'|format(s.activity or 0) }}</td><td>{{ '%.2f'|format(s.weakness or 0) }}</td>
-<td>{% if s.instagram %}<span class="pill">IG</span>{% endif %}{% if s.email and not s.email_refused %}<span class="pill">メール</span>{% endif %}{% if s.line_id %}<span class="pill">LINE</span>{% endif %}</td>
-<td>{{s.stage|ja}}</td></tr>{% endfor %}</table></div>""", rows=rows, prefs=prefs, pref=pref, q=q, stage=stage)
+    return render_template("leads.html", rows=rows, prefs=prefs, pref=pref, q=q, stage=stage, stages=STAGE_FILTER)
 
 
 @app.route("/shop/<int:sid>", methods=["GET", "POST"])
@@ -299,26 +218,7 @@ def shop(sid):
         touches = c.execute("""SELECT t.*, v.name vname FROM touches t LEFT JOIN variants v ON v.id=t.variant_id
                                WHERE shop_id=? ORDER BY t.id DESC""", (sid,)).fetchall()
         events = c.execute("SELECT * FROM events WHERE shop_id=? ORDER BY id DESC", (sid,)).fetchall()
-    return page("""<div class="card"><h2 style="margin-top:0">{{s.name}}</h2>
-<div class="mut">{{s.address}} ・ {{s.category}} ・ ★{{s.rating}}（{{s.reviews}}件） ・ 見込み度 {{s.score}} ・ <b>{{s.stage|ja}}</b></div>
-<div class="row" style="margin-top:8px">{% if s.website %}<a class="btn sub" target="_blank" href="{{s.website}}">サイト</a>{% endif %}
-{% if s.instagram %}<a class="btn sub" target="_blank" href="https://www.instagram.com/{{s.instagram}}/">Instagram</a>{% endif %}
-{% if s.place_url and s.place_url.startswith('http') %}<a class="btn sub" target="_blank" href="{{s.place_url}}">Googleマップ</a>{% endif %}</div>
-{% if g and g.thumbs %}<div class="thumbs" style="margin-top:10px">{% for u in g.thumbs.split('\n') %}<img src="{{u}}" referrerpolicy="no-referrer">{% endfor %}</div>{% endif %}
-{% if g %}<p class="mut">30日の投稿 {{g.posts_30d}}本・最終投稿 {{g.days_since_last}}日前・明るさ {{ '%.0f'|format(g.brightness or 0) }}・黄ばみ {{ '%.0f'|format(g.warmth or 0) }}・シャープさ {{ '%.0f'|format(g.sharpness or 0) }}
-{% if g.error %}・取得エラー: {{g.error}}{% endif %}</p>{% endif %}</div>
-<form method="post" class="card"><h3 style="margin-top:0">反応を記録</h3><div class="row">
-<input name="note" placeholder="メモ（任意）" style="flex:1">
-<button class="ok" name="kind" value="replied">返信あり</button><button class="ok" name="kind" value="trial">無料体験した</button>
-<button class="ok" name="kind" value="paid">有料契約</button><button class="ng" name="kind" value="declined">お断り</button>
-<button class="ng" name="kind" value="unsubscribed">停止希望</button><button class="sub" name="kind" value="note">メモだけ</button></div></form>
-<form method="post" class="card"><h3 style="margin-top:0">連絡先</h3><div class="grid">
-{% for k,label in [('owner_name','オーナー名'),('instagram','Instagram'),('line_id','LINE ID'),('email','メール')] %}
-<label class="mut">{{label}}<br><input name="{{k}}" value="{{s[k] or ''}}"></label>{% endfor %}</div>
-{% if s.email_refused %}<p class="mut">⚠ サイトに営業お断りの表示があるため、メールは送りません</p>{% endif %}<button class="sub">保存</button></form>
-<div class="card tw"><h3 style="margin-top:0">履歴</h3><table>{% for t in touches %}<tr><td>{{t.sent_at or t.planned_on}}</td><td>{{t.channel|ja}}</td><td>{{t.vname}}</td><td>{{t.status|ja}} {{t.error or ''}}</td></tr>{% endfor %}
-{% for e in events %}<tr><td>{{e.at}}</td><td colspan="2"><b>{{e.kind|ja}}</b></td><td>{{e.note or ''}}</td></tr>{% endfor %}</table></div>""",
-                s=s, g=g, touches=touches, events=events)
+    return render_template("shop.html", s=s, g=g, touches=touches, events=events)
 
 
 @app.route("/improve", methods=["GET", "POST"])
@@ -326,9 +226,7 @@ def improve_page():
     with db() as c:
         if request.method == "POST":
             vid, act = request.form.get("vid"), request.form["action"]
-            if act == "reflect":
-                improve.reflect()
-            elif act in ("active", "rejected", "retired"):
+            if act in ("active", "rejected", "retired"):
                 c.execute("UPDATE variants SET status=? WHERE id=?", (act, vid))
                 hs = {"active": "testing", "rejected": "rejected", "retired": "rejected"}[act]
                 c.execute("UPDATE hypotheses SET status=? WHERE variant_id=?", (hs, vid))
@@ -338,21 +236,7 @@ def improve_page():
         hyps = c.execute("SELECT * FROM hypotheses ORDER BY id DESC LIMIT 20").fetchall()
         rep = c.execute("SELECT * FROM reports ORDER BY id DESC LIMIT 1").fetchone()
     notes = json.loads(rep["body"])["notes"] if rep else []
-    return page("""<div class="card"><div class="row" style="justify-content:space-between"><h2 style="margin:0">文面の成績</h2>
-<form method="post"><button name="action" value="reflect">今すぐ振り返る（集計・引退判定・新しい文面の提案）</button></form></div>
-{% if rep %}<p class="mut">前回 {{rep.at}}: {{ notes|join(' / ') }}</p>{% endif %}
-<div class="tw"><table><tr><th>文面</th><th>状態</th>{% for ch in chs %}<th>{{ch|ja}}<br><span class="mut">送信・反応率・最良の確率</span></th>{% endfor %}<th></th></tr>
-{% for v in variants %}<tr><td><b>{{v.name}}</b></td><td>{{v.status|ja}}</td>
-{% for ch in chs %}{% set p = perf[ch].get(v.id) %}<td>{% if p %}{{p.sent}}件・{{ '%.1f%%'|format(100*p.rate) if p.rate is not none else '-' }}・{{ '%.0f%%'|format(100*p.p_best) }}{% else %}-{% endif %}</td>{% endfor %}
-<td><form method="post" class="row"><input type="hidden" name="vid" value="{{v.id}}">
-{% if v.status=='proposed' %}<button class="ok" name="action" value="active">承認して配信</button><button class="sub" name="action" value="rejected">却下</button>
-{% elif v.status=='active' %}<button class="sub" name="action" value="retired">停止</button>
-{% else %}<button class="sub" name="action" value="active">再開</button>{% endif %}</form></td></tr>
-<tr><td colspan="{{ 3 + chs|length }}"><details><summary class="mut">本文と意図を見る</summary><p class="mut">{{v.rationale or ''}}</p><pre>{{v.body}}</pre></details></td></tr>{% endfor %}
-</table></div></div>
-<div class="card tw"><h2 style="margin-top:0">仮説</h2><table><tr><th>日付</th><th>仮説</th><th>状態</th><th>結果</th></tr>
-{% for h in hyps %}<tr><td>{{h.created_at[:10]}}</td><td><b>{{h.title}}</b><br><span class="mut">{{h.proposal}}</span></td><td>{{h.status|ja}}</td><td>{{h.result or ''}}</td></tr>{% endfor %}</table></div>""",
-                variants=variants, perf=perf, chs=CHANNELS, hyps=hyps, rep=rep, notes=notes)
+    return render_template("improve.html", variants=variants, perf=perf, chs=CHANNELS, hyps=hyps, rep=rep, notes=notes)
 
 
 @app.route("/jobs", methods=["GET", "POST"])
@@ -364,33 +248,15 @@ def jobs_page():
             kw["areas"] = [a.strip() for a in request.form.get("areas", "").split(",") if a.strip()] or None
             kw["keywords"] = [k.strip() for k in request.form.get("keywords", "").split(",") if k.strip()] or None
             kw["limit"] = int(request.form.get("limit") or 0) or None
-        if name == "enrich":
+        elif name == "enrich":
             kw["limit"] = int(request.form.get("limit") or 200)
         jobs.start(name, **kw)
         return redirect("/jobs")
     cfg = settings()
     st = jobs.state
-    running = st["name"] and not st["finished"]
-    return page("""{% if running %}<meta http-equiv="refresh" content="5">{% endif %}
-<div class="card"><h2 style="margin-top:0">実行</h2><p class="mut">重い処理は裏で動きます。同時に動かせるのは1つだけです。
-{% if auto %}毎朝 {{auto}} に「全自動」が動きます（月曜は振り返りも）。{% else %}自動実行はオフです（環境変数 AUTO_DAILY_AT で設定）。{% endif %}</p>
-<form method="post" class="row card"><input type="hidden" name="name" value="collect"><b>①収集</b>
-<input name="areas" placeholder="エリア（カンマ区切り）" value="{{ areas }}" style="flex:1;min-width:200px">
-<input name="keywords" placeholder="業種（空なら設定どおり）" style="flex:1;min-width:160px">
-<input name="limit" type="number" placeholder="1検索の件数" style="width:110px"><button {{'disabled' if running}}>収集する</button></form>
-<form method="post" class="row card"><input type="hidden" name="name" value="enrich"><b>②Instagram解析</b>
-<input name="limit" type="number" value="200" style="width:110px"><span class="mut">店まで</span><button {{'disabled' if running}}>解析する</button></form>
-<form method="post" class="row card"><input type="hidden" name="name" value="daily"><b>③毎日の実行</b>
-<span class="mut">返信の取り込み → 今日の送信リスト → メール送信（{{ '本番' if live else 'ドライラン' }}）</span><button {{'disabled' if running}}>実行する</button></form>
-<form method="post" class="row card"><input type="hidden" name="name" value="auto"><b>全自動（毎朝の処理）</b>
-<span class="mut">返信取り込み → 未収集エリアの収集 → 解析 → 送信リスト → メール → 通知 を今すぐ実行</span><button {{'disabled' if running}}>実行する</button></form>
-<form method="post" class="row card"><input type="hidden" name="name" value="reflect"><b>④振り返り</b>
-<span class="mut">集計・文面の引退判定・新しい文面の提案</span><button {{'disabled' if running}}>実行する</button></form></div>
-{% if st.name %}<div class="card"><h3 style="margin-top:0">{{st.name|ja}}：{{ '実行中…' if running else ('完了' if st.ok else '失敗') }}
-<span class="mut">{{st.started}} 〜 {{st.finished or ''}}</span></h3>
-{% if st.error %}<div class="card" style="border-color:var(--ng)"><b>エラー：</b><pre>{{st.error}}</pre></div>{% endif %}<pre>{{st.log}}</pre></div>{% endif %}""",
-                st=st, running=running, auto=os.environ.get("AUTO_DAILY_AT"), live=cfg["channels"]["email_live"],
-                areas=",".join(cfg["collect"].get("areas") or []))
+    return render_template("jobs.html", st=st, running=bool(st["name"] and not st["finished"]),
+                           auto=os.environ.get("AUTO_DAILY_AT"), live=cfg["channels"]["email_live"],
+                           areas=",".join(cfg["collect"].get("areas") or []))
 
 
 def serve(port=8765):

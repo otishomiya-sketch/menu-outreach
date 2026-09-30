@@ -39,7 +39,7 @@ def _step(name, fn, report):
         report.append(f"✗ {name}（{str(e)[:80]}）")
 
 
-def _daily(full=False):
+def run_daily(full=False):
     """毎朝の処理。full=True（自動実行）では収集と解析も行う。"""
     import os
 
@@ -79,8 +79,8 @@ def _task(name, **kw):
     return {
         "collect": lambda: collect.run(kw.get("areas"), kw.get("keywords"), kw.get("limit")),
         "enrich": lambda: enrich.run(kw.get("limit") or 200),
-        "daily": _daily,
-        "auto": lambda: _daily(full=True),
+        "daily": run_daily,
+        "auto": lambda: run_daily(full=True),
         "reflect": lambda: improve.reflect(),
     }[name]
 

@@ -10,7 +10,8 @@
   python cli.py email [--live]       ③キューのメールを送る（既定はドライラン）
   python cli.py inbox                返信メールを取り込む（返信あり / 配信停止）
   python cli.py reflect [--no-propose] ④振り返り（集計・文面の引退判定・新しい文面の提案）
-  python cli.py daily                inbox → plan → email を順に実行
+  python cli.py daily                送信だけ実行（返信の取り込み → 送信リスト → メール）
+  python cli.py auto                 全自動（返信の取り込み → 収集 → 解析 → 送信リスト → メール → 通知）
   python cli.py serve                ダッシュボードを開く http://127.0.0.1:8765
   python cli.py demo                 APIキーなしで動作確認（架空の30店で data/demo.db を作り、ダッシュボードを開く）
   python cli.py serve --demo         作成済みのデモデータでダッシュボードを開く
@@ -46,6 +47,7 @@ def main():
     p = sub.add_parser("reflect")
     p.add_argument("--no-propose", action="store_true")
     sub.add_parser("daily")
+    sub.add_parser("auto")
     p = sub.add_parser("serve")
     p.add_argument("--port", type=int, default=8765)
     p.add_argument("--demo", action="store_true", help="デモデータで開く")
@@ -72,10 +74,9 @@ def main():
         outreach.check_inbox()
     elif a.cmd == "reflect":
         improve.reflect(propose=not a.no_propose)
-    elif a.cmd == "daily":
-        outreach.check_inbox()
-        outreach.plan()
-        outreach.send_emails()
+    elif a.cmd in ("daily", "auto"):
+        from app import jobs
+        jobs.run_daily(full=a.cmd == "auto")
     elif a.cmd == "demo":
         from app import demo
         from app.web import serve

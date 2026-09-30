@@ -98,7 +98,7 @@ def _available(shop):
     }
 
 
-def plan(today_only=True):
+def plan():
     """今日送る分をキューに積む。上限・重複・配信停止・再アプローチ間隔を守る。"""
     cfg = settings()
     ch = cfg["channels"]
@@ -108,7 +108,7 @@ def plan(today_only=True):
                AND status IN ('queued','sent')""", (c,)).fetchone()[0] for c in CHANNELS}
         room = {c: max(0, ch["daily_limit"][c] - queued[c]) for c in CHANNELS}
         cands = conn.execute(
-            f"""SELECT s.*,
+            """SELECT s.*,
                   (SELECT COUNT(*) FROM touches t WHERE t.shop_id=s.id AND t.status IN ('sent','queued')) AS n_touch,
                   (SELECT MAX(t.sent_at) FROM touches t WHERE t.shop_id=s.id AND t.status='sent') AS last_touch,
                   (SELECT GROUP_CONCAT(t.channel) FROM touches t WHERE t.shop_id=s.id AND t.status IN ('sent','queued')) AS used

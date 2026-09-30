@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <h2>✉️ メール（自動送信）</h2>
+  <p>メールは毎朝 {{ auto or '（自動実行オフ）' }} の自動実行で、見込み度の高い店から1日 {{ limit }} 件まで自動で送られます。ボタン操作は不要です。
+    今すぐ送りたいときは「実行」→「③送信だけ実行」。</p>
+  <div class="grid">
+    {% for label, ok in checks %}
+    <div><span style="color:var({{ '--ok' if ok else '--ng' }})">{{ '✓' if ok else '✗' }}</span> {{ label }}</div>
+    {% endfor %}
+  </div>
+  <p class="mut">
+    {% if checks|selectattr(1)|list|length == checks|length %}すべて設定済み：本番送信されます。
+    {% else %}✗ がある間は<b>ドライラン</b>（文面を作るだけで、実際には送りません）。{% endif %}
+  </p>
+  <div class="grid">
+    <div><div class="mut">今日の送信</div><div class="num">{{ today }} <span class="mut">/ {{ limit }}</span></div></div>
+    {% for st in statuses %}<div><div class="mut">{{ st|ja }}</div><div class="num">{{ counts.get(st, 0) }}</div></div>{% endfor %}
+  </div>
+</div>
+
+<form class="row card">
+  <select name="status">
+    <option value="">すべて</option>
+    {% for st in statuses %}<option value="{{ st }}" {{ 'selected' if st == status }}>{{ st|ja }}</option>{% endfor %}
+  </select>
+  <button>絞り込み</button>
+</form>
+
+<div class="card tw">
+  <table>
+    <tr><th>日時</th><th>店名・宛先</th><th>文面</th><th>状態</th></tr>
+    {% for r in rows %}
+    <tr>
+      <td class="mut">{{ r.sent_at or r.planned_on }}</td>
+      <td><a href="/shop/{{ r.sid }}">{{ r.name }}</a><br><span class="mut">{{ r.email }}</span></td>
+      <td>{{ r.vname }}
+        <details><summary class="mut">件名と本文を見る</summary><p><b>{{ (r.subject or '')|replace('{shop_name}', r.name) }}</b></p><pre>{{ r.message }}</pre></details></td>
+      <td>{{ r.status|ja }} <span class="mut">{{ r.error or '' }}</span></td>
+    </tr>
+    {% else %}
+    <tr><td colspan="4" class="mut">まだありません。「今日の送信リストを作る」か毎朝の自動実行で作られます。</td></tr>
+    {% endfor %}
+  </table>
+</div>
+{% endblock %}

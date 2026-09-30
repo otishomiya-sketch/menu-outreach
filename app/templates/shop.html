@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <h2>{{ s.name }}</h2>
+  <div class="mut">{{ s.address }} ・ {{ s.category }} ・ ★{{ s.rating }}（{{ s.reviews }}件） ・ 見込み度 {{ s.score }} ・ <b>{{ s.stage|ja }}</b></div>
+  <div class="row" style="margin-top:8px">
+    {% if s.website %}<a class="btn sub" target="_blank" href="{{ s.website }}">サイト</a>{% endif %}
+    {% if s.instagram %}<a class="btn sub" target="_blank" href="https://www.instagram.com/{{ s.instagram }}/">Instagram</a>{% endif %}
+    {% if s.place_url and s.place_url.startswith('http') %}<a class="btn sub" target="_blank" href="{{ s.place_url }}">Googleマップ</a>{% endif %}
+  </div>
+  {% if g and g.thumbs %}
+  <div class="thumbs">{% for u in g.thumbs.split('\n') %}<img src="{{ u }}" referrerpolicy="no-referrer">{% endfor %}</div>
+  {% endif %}
+  {% if g %}
+  <p class="mut">30日の投稿 {{ g.posts_30d }}本・最終投稿 {{ g.days_since_last }}日前・明るさ {{ '%.0f'|format(g.brightness or 0) }}・黄ばみ {{ '%.0f'|format(g.warmth or 0) }}・シャープさ {{ '%.0f'|format(g.sharpness or 0) }}
+    {% if g.error %}・取得エラー: {{ g.error }}{% endif %}</p>
+  {% endif %}
+</div>
+
+<form method="post" class="card">
+  <h3>反応を記録</h3>
+  <div class="row">
+    <input name="note" placeholder="メモ（任意）" style="flex:1">
+    <button class="ok" name="kind" value="replied">返信あり</button>
+    <button class="ok" name="kind" value="trial">無料体験した</button>
+    <button class="ok" name="kind" value="paid">有料契約</button>
+    <button class="ng" name="kind" value="declined">お断り</button>
+    <button class="ng" name="kind" value="unsubscribed">停止希望</button>
+    <button class="sub" name="kind" value="note">メモだけ</button>
+  </div>
+</form>
+
+<form method="post" class="card">
+  <h3>連絡先</h3>
+  <div class="grid">
+    {% for k, label in [('owner_name', 'オーナー名'), ('instagram', 'Instagram'), ('line_id', 'LINE ID'), ('email', 'メール')] %}
+    <label class="mut">{{ label }}<br><input name="{{ k }}" value="{{ s[k] or '' }}"></label>
+    {% endfor %}
+  </div>
+  {% if s.email_refused %}<p class="mut">⚠ サイトに営業お断りの表示があるため、メールは送りません</p>{% endif %}
+  <button class="sub">保存</button>
+</form>
+
+<div class="card tw">
+  <h3>履歴</h3>
+  <table>
+    {% for t in touches %}
+    <tr><td>{{ t.sent_at or t.planned_on }}</td><td>{{ t.channel|ja }}</td><td>{{ t.vname }}</td><td>{{ t.status|ja }} {{ t.error or '' }}</td></tr>
+    {% endfor %}
+    {% for e in events %}
+    <tr><td>{{ e.at }}</td><td colspan="2"><b>{{ e.kind|ja }}</b></td><td>{{ e.note or '' }}</td></tr>
+    {% endfor %}
+  </table>
+</div>
+{% endblock %}

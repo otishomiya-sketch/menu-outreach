@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <h2>キューは空です</h2>
+  <p>今日の送信 {{ done }} / {{ limit }} 件。</p>
+  <form method="post" action="/plan"><button>今日の送信リストを作る</button></form>
+</div>
+{% endblock %}

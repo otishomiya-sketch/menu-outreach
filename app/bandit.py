@@ -5,8 +5,6 @@
 """
 import random
 
-POSITIVE = ("replied", "trial", "paid")
-
 
 def stats(conn, channel=None):
     q = f"""

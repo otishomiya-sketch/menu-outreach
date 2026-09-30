@@ -135,7 +135,7 @@ def run_search(keyword, location, limit, force=False):
         website = (item.get("website") or "").strip()
         ig = normalize_ig(_first(item.get("instagrams") or []))
         emails = [e.lower() for e in (item.get("emails") or [])]
-        site = crawl_site(website) if website else crawl_site(None)
+        site = crawl_site(website)
         # Googleマップのサイト欄が Instagram のことも多い
         if not ig and "instagram.com" in website:
             ig = normalize_ig(website)

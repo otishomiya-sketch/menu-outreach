@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block content %}
+<form class="row card">
+  <input name="q" value="{{ q }}" placeholder="店名・業種">
+  <select name="pref">
+    <option value="">都道府県</option>
+    {% for p in prefs %}<option {{ 'selected' if p == pref }}>{{ p }}</option>{% endfor %}
+  </select>
+  <select name="stage">
+    <option value="">ステージ</option>
+    {% for s in stages %}<option value="{{ s }}" {{ 'selected' if s == stage }}>{{ s|ja }}</option>{% endfor %}
+  </select>
+  <button>絞り込み</button>
+</form>
+<div class="card tw">
+  <table>
+    <tr><th>見込み度</th><th>店名</th><th>地域・業種</th><th>活発度</th><th>写真の弱点</th><th>連絡先</th><th>ステージ</th></tr>
+    {% for s in rows %}
+    <tr>
+      <td><b>{{ s.score if s.score is not none else '-' }}</b></td>
+      <td><a href="/shop/{{ s.id }}">{{ s.name }}</a></td>
+      <td class="mut">{{ s.prefecture or '' }} {{ s.category or '' }}</td>
+      <td>{{ '%.2f'|format(s.activity or 0) }}</td>
+      <td>{{ '%.2f'|format(s.weakness or 0) }}</td>
+      <td>
+        {% if s.instagram %}<span class="pill">IG</span>{% endif %}
+        {% if s.email and not s.email_refused %}<span class="pill">メール</span>{% endif %}
+        {% if s.line_id %}<span class="pill">LINE</span>{% endif %}
+      </td>
+      <td>{{ s.stage|ja }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+{% endblock %}

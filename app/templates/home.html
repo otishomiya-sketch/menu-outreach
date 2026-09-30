@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <h2>今日の送信</h2>
+  <div class="grid">
+  {% for ch, label in [('instagram', 'Instagram DM（手動）'), ('line', 'LINE（手動）'), ('email', 'メール（自動）')] %}
+    {% set t = today.get(ch, {}) %}
+    <div>
+      <div class="mut">{{ label }}</div>
+      <div class="num">{{ t.s or 0 }} <span class="mut">/ {{ limits[ch] }}</span></div>
+      <div class="mut">残りキュー {{ t.q or 0 }}件{% if t.d %}・ドライラン {{ t.d }}件{% endif %}</div>
+      {% if ch != 'email' and t.q %}<a class="btn" href="/queue/{{ ch }}">送信を始める</a>{% endif %}
+    </div>
+  {% endfor %}
+  </div>
+  <form method="post" action="/plan" style="margin-top:12px">
+    <button>今日の送信リストを作る</button>
+    <span class="mut">見込み度の高い順に、上限まで積みます（{{ 'メールは本番送信' if live else 'メールはドライラン' }}）</span>
+  </form>
+</div>
+<div class="card">
+  <h2>全体</h2>
+  <div class="grid">
+    <div><div class="mut">収集した店</div><div class="num">{{ total }}</div><div class="mut">スコア済み {{ scored }}</div></div>
+    {% for st in ['contacted', 'replied', 'trial', 'paid', 'declined', 'unsubscribed'] %}
+    <div><div class="mut">{{ st|ja }}</div><div class="num">{{ funnel.get(st, 0) }}</div></div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}
