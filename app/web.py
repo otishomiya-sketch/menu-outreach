@@ -180,7 +180,16 @@ def mail_page():
     ]
     return render_template("mail.html", rows=rows, counts=counts, today=today, checks=checks, status=status,
                            statuses=MAIL_STATUSES, limit=cfg["channels"]["daily_limit"]["email"],
-                           auto=os.environ.get("AUTO_DAILY_AT"))
+                           auto=os.environ.get("AUTO_DAILY_AT"), conn_result=_last_mail_test)
+
+
+_last_mail_test = []
+
+
+@app.post("/mail/test")
+def mail_test():
+    _last_mail_test[:] = outreach.test_connection()
+    return redirect("/mail")
 
 
 @app.route("/leads")

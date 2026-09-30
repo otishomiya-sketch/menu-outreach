@@ -246,6 +246,40 @@ def send_emails(live=None):
             smtp.quit()
 
 
+def test_connection():
+    """メールは送らず、SMTP（送信）と POP3/IMAP（受信）にログインできるかだけ確かめる。"""
+    results = []
+    user, pw = os.environ.get("SMTP_USER"), os.environ.get("SMTP_PASSWORD")
+    if not (os.environ.get("SMTP_HOST") and user and pw):
+        return ["✗ 送信（SMTP）: SMTP_HOST / SMTP_USER / SMTP_PASSWORD のどれかが未設定です"]
+    try:
+        with smtplib.SMTP_SSL(os.environ["SMTP_HOST"], int(os.environ.get("SMTP_PORT", 465)), timeout=15) as s:
+            s.login(user, pw)
+        results.append(f"✓ 送信（SMTP）: {user} でログインできました")
+    except smtplib.SMTPAuthenticationError:
+        results.append(f"✗ 送信（SMTP）: {user} のパスワードが違います")
+    except Exception as e:
+        results.append(f"✗ 送信（SMTP）: 接続できませんでした（{e}）")
+    try:
+        if os.environ.get("IMAP_HOST"):
+            im = imaplib.IMAP4_SSL(os.environ["IMAP_HOST"], int(os.environ.get("IMAP_PORT", 993)))
+            im.login(os.environ.get("IMAP_USER") or user, os.environ.get("IMAP_PASSWORD") or pw)
+            im.logout()
+            results.append("✓ 受信（IMAP）: ログインできました")
+        elif os.environ.get("POP3_HOST"):
+            pop = poplib.POP3_SSL(os.environ["POP3_HOST"], int(os.environ.get("POP3_PORT", 995)), timeout=15)
+            pop.user(os.environ.get("POP3_USER") or user)
+            pop.pass_(os.environ.get("POP3_PASSWORD") or pw)
+            n = len(pop.list()[1])
+            pop.quit()
+            results.append(f"✓ 受信（POP3）: ログインできました（受信箱 {n}通）")
+        else:
+            results.append("– 受信: POP3_HOST / IMAP_HOST が未設定（返信の自動取り込みは使えません）")
+    except Exception as e:
+        results.append(f"✗ 受信: ログインできませんでした（{e}）")
+    return results
+
+
 # ---------- 返信の取り込み（IMAP） ----------
 
 def _text_of(msg):

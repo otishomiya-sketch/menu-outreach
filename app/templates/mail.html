@@ -19,6 +19,12 @@
   </div>
 </div>
 
+<form method="post" action="/mail/test" class="card">
+  <div class="row"><button>接続テスト</button>
+    <span class="mut">メールは送らずに、送信（SMTP）と受信（POP3）のサーバーにログインできるかだけ確かめます</span></div>
+  {% for r in conn_result %}<div>{{ r }}</div>{% endfor %}
+</form>
+
 <form class="row card">
   <select name="status">
     <option value="">すべて</option>
