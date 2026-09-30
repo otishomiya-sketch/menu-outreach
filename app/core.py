@@ -154,6 +154,14 @@ CREATE TABLE IF NOT EXISTS hypotheses (
   created_at TEXT DEFAULT (datetime('now','localtime'))
 );
 
+-- Menu Photo Pro のデモコードと店の対応（無料体験の時点で記録し、後日の有料契約を同じ店に結び付ける）
+CREATE TABLE IF NOT EXISTS app_codes (
+  code TEXT PRIMARY KEY,
+  shop_id INTEGER REFERENCES shops(id),
+  ref TEXT,
+  at TEXT DEFAULT (datetime('now','localtime'))
+);
+
 CREATE TABLE IF NOT EXISTS reports (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   kind TEXT, body TEXT,

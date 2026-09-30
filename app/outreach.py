@@ -176,18 +176,28 @@ REF_RE = re.compile(r"^([0-9a-f]{8})-(in|em|li)(\d+)$")
 REF_CHANNEL = {"in": "instagram", "em": "email", "li": "line"}
 
 
-def track_event(ref, event, shop_name=None):
-    """お試しURLの ref（店舗コード-チャネル文面ID）から、どの送信で無料体験・有料契約が生まれたかを記録する。"""
+def track_event(ref, event, shop_name=None, app_code=None):
+    """どの送信で無料体験・有料契約が生まれたかを記録する。
+    ref      … お試しURLの ref（店舗コード-チャネル文面ID）。無料体験の時点で届く
+    app_code … Menu Photo Pro のデモコード。無料体験のときに ref と一緒に記録し、後日の有料契約はこれだけで店を特定する"""
     if event not in ("trial", "paid"):
         return {"ok": False, "error": "event は trial か paid"}
-    m = REF_RE.match((ref or "").strip().lower())
+    ref = (ref or "").strip().lower()
+    app_code = (app_code or "").strip()[:64] or None
+    with db() as conn:
+        if not ref and app_code:   # 有料契約など、ref が手元にないとき
+            row = conn.execute("SELECT ref FROM app_codes WHERE code=?", (app_code,)).fetchone()
+            ref = row["ref"] if row else ""
+    m = REF_RE.match(ref)
     if not m:
-        return {"ok": False, "error": "ref の形式が違います"}
+        return {"ok": False, "error": "営業から来た店ではありません（ref がありません）"}
     code, ch, vid = m.group(1), REF_CHANNEL[m.group(2)], int(m.group(3))
     with db() as conn:
         shop = conn.execute("SELECT * FROM shops WHERE ref_code=?", (code,)).fetchone()
         if not shop:
             return {"ok": False, "error": "該当する店がありません"}
+        if app_code:
+            conn.execute("INSERT OR IGNORE INTO app_codes (code, shop_id, ref) VALUES (?,?,?)", (app_code, shop["id"], ref))
         if conn.execute("SELECT 1 FROM events WHERE shop_id=? AND kind=?", (shop["id"], event)).fetchone():
             return {"ok": True, "duplicate": True, "shop": shop["name"]}
         touch = conn.execute("""SELECT id FROM touches WHERE shop_id=? AND channel=? AND variant_id=? AND status='sent'

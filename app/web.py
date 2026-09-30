@@ -69,13 +69,14 @@ def _auth():
 @app.post("/api/track")
 def api_track():
     """Menu Photo Pro から「無料体験を始めた」「有料契約した」を受け取る。
-    body: {"ref": "a1b2c3d4-in1", "event": "trial" | "paid", "shop_name": "任意"}
+    body: {"ref": "a1b2c3d4-in1", "event": "trial" | "paid", "code": "デモコード", "shop_name": "任意"}
+    有料契約は ref がなくても、無料体験のときに送られたデモコードで店を特定する。
     TRACK_TOKEN を設定した場合は、ヘッダー X-Track-Token が一致しないと受け付けない。"""
     token = os.environ.get("TRACK_TOKEN")
     if token and not hmac.compare_digest(request.headers.get("X-Track-Token", ""), token):
         return {"ok": False, "error": "token"}, 403
     data = request.get_json(silent=True) or request.form
-    result = outreach.track_event(data.get("ref", ""), data.get("event", ""), data.get("shop_name"))
+    result = outreach.track_event(data.get("ref", ""), data.get("event", ""), data.get("shop_name"), data.get("code"))
     return result, (200 if result["ok"] else 400)
 
 
