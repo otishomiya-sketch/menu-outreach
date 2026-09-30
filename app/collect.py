@@ -39,7 +39,9 @@ def valid_email(e):
     if not EMAIL_FULL_RE.fullmatch(e) or any(b in e for b in BAD_EMAIL_PARTS):
         return False
     local, domain = e.rsplit("@", 1)
-    if local in BAD_EMAIL_LOCALS or any(domain == d.lstrip(".") or domain.endswith(d) for d in BAD_EMAIL_DOMAINS):
+    # ".lg.jp" のように点で始まるものは末尾一致、それ以外はドメイン完全一致（gmail.com を mail.com と誤判定しない）
+    if local in BAD_EMAIL_LOCALS or any(domain.endswith(d) if d.startswith(".") else domain == d
+                                        for d in BAD_EMAIL_DOMAINS):
         return False
     return True
 
