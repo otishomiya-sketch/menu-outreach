@@ -52,7 +52,7 @@ def _demo_flag():
 
 @app.before_request
 def _auth():
-    if request.path == "/healthz":
+    if request.path in ("/healthz", "/api/track"):   # /api/track は独自に検証する
         return None
     pw = os.environ.get("DASHBOARD_PASSWORD")
     if not pw:
@@ -64,6 +64,19 @@ def _auth():
             and hmac.compare_digest(a.password or "", pw):
         return None
     return ("ログインが必要です", 401, {"WWW-Authenticate": 'Basic realm="menu-outreach"'})
+
+
+@app.post("/api/track")
+def api_track():
+    """Menu Photo Pro から「無料体験を始めた」「有料契約した」を受け取る。
+    body: {"ref": "a1b2c3d4-in1", "event": "trial" | "paid", "shop_name": "任意"}
+    TRACK_TOKEN を設定した場合は、ヘッダー X-Track-Token が一致しないと受け付けない。"""
+    token = os.environ.get("TRACK_TOKEN")
+    if token and not hmac.compare_digest(request.headers.get("X-Track-Token", ""), token):
+        return {"ok": False, "error": "token"}, 403
+    data = request.get_json(silent=True) or request.form
+    result = outreach.track_event(data.get("ref", ""), data.get("event", ""), data.get("shop_name"))
+    return result, (200 if result["ok"] else 400)
 
 
 @app.route("/healthz")
@@ -122,7 +135,9 @@ def queue(channel):
     limit = settings()["channels"]["daily_limit"][channel]
     if not t:
         return render_template("queue_empty.html", done=done, limit=limit)
-    return render_template("queue.html", t=t, ch=channel, left=left, done=done, limit=limit, url=open_url(channel, t))
+    sender_handle = os.environ.get("IG_SENDER_HANDLE") if channel == "instagram" else os.environ.get("LINE_SENDER_NAME")
+    return render_template("queue.html", t=t, ch=channel, left=left, done=done, limit=limit, url=open_url(channel, t),
+                           sender_handle=sender_handle)
 
 
 @app.post("/touch/<int:tid>")

@@ -4,11 +4,12 @@
 """
 import os
 
-from .core import clean_emails, init_db, load_env
+from .core import clean_emails, init_db, load_env, restore_lost_email
 
 load_env()
 init_db()
 clean_emails()   # 役所・見本アドレスなど、送ってはいけない宛先を起動時に除去
+restore_lost_email()
 
 from . import jobs, outreach  # noqa: E402
 from .web import app  # noqa: E402

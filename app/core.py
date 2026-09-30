@@ -180,6 +180,27 @@ def init_db():
         c.executescript(SCHEMA)
 
 
+def restore_lost_email():
+    """2026-09-30 の宛先検査の不具合（gmail.com を mail.com と誤判定）で消した1件を戻す。
+    候補がちょうど1店のときだけ戻し、それ以外は候補を記録するだけ（別の店に付けないため）。"""
+    addr = "world.tea.labo.tempo@gmail.com"
+    with db() as c:
+        if c.execute("SELECT 1 FROM shops WHERE email=?", (addr,)).fetchone():
+            return
+        like = ["%tea%labo%", "%tealabo%", "%ティーラボ%", "%ティー ラボ%", "%tea labo%"]
+        cond = " OR ".join(["lower(name) LIKE ?", "lower(website) LIKE ?"] * len(like))
+        args = [x for p in like for x in (p, p)]
+        rows = c.execute(f"SELECT id, name, website FROM shops WHERE email IS NULL AND ({cond})", args).fetchall()
+        if len(rows) == 1:
+            c.execute("UPDATE shops SET email=? WHERE id=?", (addr, rows[0]["id"]))
+            print(f"[restore] {rows[0]['name']} にメールアドレスを戻しました")
+        else:
+            wide = c.execute("""SELECT name, website FROM shops WHERE email IS NULL AND
+                                (lower(name) LIKE '%tea%' OR name LIKE '%ティー%' OR lower(website) LIKE '%tea%') LIMIT 10""").fetchall()
+            print(f"[restore] 候補 {len(rows)}店のため戻していません。参考: " +
+                  " / ".join(f"{r['name']} {r['website'] or ''}" for r in wide))
+
+
 def clean_emails():
     """保存済みの宛先を検査し、送ってはいけないアドレスを消す（送信待ちのメールも取り消す）。何度実行しても同じ結果。"""
     from .collect import valid_email

@@ -1,5 +1,9 @@
 {% extends "base.html" %}
 {% block content %}
+{% if sender_handle %}
+<div class="card" style="border-color:var(--acc)">送信アカウント：<b>{{ '@' ~ sender_handle if ch == 'instagram' else sender_handle }}</b>
+  <span class="mut">DM画面の上に出ているアカウントがこれと同じか確認してから送ってください</span></div>
+{% endif %}
 <div class="row between">
   <h2>{{ '📷 Instagram DM' if ch == 'instagram' else '💬 LINE' }}</h2>
   <span class="mut">今日 {{ done }} / {{ limit }} 件送信・残り {{ left }} 件</span>

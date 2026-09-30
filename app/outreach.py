@@ -170,6 +170,34 @@ def plan():
     return added
 
 
+# ---------- 成果の受け取り（Menu Photo Pro から） ----------
+
+REF_RE = re.compile(r"^([0-9a-f]{8})-(in|em|li)(\d+)$")
+REF_CHANNEL = {"in": "instagram", "em": "email", "li": "line"}
+
+
+def track_event(ref, event, shop_name=None):
+    """お試しURLの ref（店舗コード-チャネル文面ID）から、どの送信で無料体験・有料契約が生まれたかを記録する。"""
+    if event not in ("trial", "paid"):
+        return {"ok": False, "error": "event は trial か paid"}
+    m = REF_RE.match((ref or "").strip().lower())
+    if not m:
+        return {"ok": False, "error": "ref の形式が違います"}
+    code, ch, vid = m.group(1), REF_CHANNEL[m.group(2)], int(m.group(3))
+    with db() as conn:
+        shop = conn.execute("SELECT * FROM shops WHERE ref_code=?", (code,)).fetchone()
+        if not shop:
+            return {"ok": False, "error": "該当する店がありません"}
+        if conn.execute("SELECT 1 FROM events WHERE shop_id=? AND kind=?", (shop["id"], event)).fetchone():
+            return {"ok": True, "duplicate": True, "shop": shop["name"]}
+        touch = conn.execute("""SELECT id FROM touches WHERE shop_id=? AND channel=? AND variant_id=? AND status='sent'
+                                ORDER BY sent_at DESC LIMIT 1""", (shop["id"], ch, vid)).fetchone()
+        note = "Menu Photo Pro から自動記録" + (f"（入力された店名: {shop_name[:40]}）" if shop_name else "")
+        record_outcome(conn, shop["id"], event, note, touch and touch["id"])
+    print(f"[track] {shop['name']}: {event}（{ch} / 文面{vid}）")
+    return {"ok": True, "shop": shop["name"], "event": event}
+
+
 # ---------- 記録 ----------
 
 def mark_sent(conn, touch_id, status="sent", error=None):
