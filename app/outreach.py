@@ -87,12 +87,29 @@ def email_footer(cfg):
 
 
 def seed_variants():
+    """templates/variants.yaml の文面を DB に反映する。
+    既にある文面（同じ name）は本文・件名・意図を yaml に合わせて更新し、状態（配信中・承認待ちなど）は変えない。
+    本文が変わった文面は、送信待ちの DM・LINE・メールの文面も作り直す。"""
     data = yaml.safe_load((ROOT / "templates" / "variants.yaml").read_text(encoding="utf-8"))
+    changed = []
     with db() as conn:
         for v in data["variants"]:
-            conn.execute("""INSERT OR IGNORE INTO variants (name,subject,body,status,rationale)
-                            VALUES (?,?,?,?,?)""", (v["name"], v.get("subject"), v["body"], v["status"],
-                                                   v.get("rationale")))
+            row = conn.execute("SELECT * FROM variants WHERE name=?", (v["name"],)).fetchone()
+            if not row:
+                conn.execute("""INSERT INTO variants (name,subject,body,status,rationale) VALUES (?,?,?,?,?)""",
+                             (v["name"], v.get("subject"), v["body"], v["status"], v.get("rationale")))
+            elif (row["body"], row["subject"], row["rationale"]) != (v["body"], v.get("subject"), v.get("rationale")):
+                conn.execute("UPDATE variants SET body=?, subject=?, rationale=? WHERE id=?",
+                             (v["body"], v.get("subject"), v.get("rationale"), row["id"]))
+                changed.append(row["id"])
+        if changed:
+            cfg = settings()
+            q = """SELECT t.id, t.channel, t.variant_id, s.* FROM touches t JOIN shops s ON s.id=t.shop_id
+                   WHERE t.status IN ('queued','dryrun') AND t.variant_id IN (%s)""" % ",".join("?" * len(changed))
+            for t in conn.execute(q, changed).fetchall():
+                var = conn.execute("SELECT * FROM variants WHERE id=?", (t["variant_id"],)).fetchone()
+                conn.execute("UPDATE touches SET message=? WHERE id=?", (render(var, t, t["channel"], cfg)[1], t[0]))
+            print(f"[variants] 文面 {len(changed)}本を更新し、送信待ちの文面を作り直しました")
 
 
 # ---------- 計画 ----------
