@@ -188,6 +188,19 @@ def init_db():
         c.executescript(SCHEMA)
 
 
+def restore_sent_emails():
+    """2026-10-01 の掃除で、送信済みの店から消してしまったアドレスを戻す（返信の取り込みに必要）。"""
+    fixes = {"%まぶりっと%": "maburitto@wave.plala.or.jp", "%よりみち%": "shoko_kanko-kakari@town.taiki.hokkaido.jp",
+             "%来よ乃%": "shimokita@kasamai-shimokita.or.jp"}
+    with db() as c:
+        for like, addr in fixes.items():
+            rows = c.execute("""SELECT id, name FROM shops WHERE email IS NULL AND name LIKE ? AND id IN
+                                (SELECT shop_id FROM touches WHERE channel='email' AND status='sent')""", (like,)).fetchall()
+            if len(rows) == 1:
+                c.execute("UPDATE shops SET email=? WHERE id=?", (addr, rows[0]["id"]))
+                print(f"[restore] {rows[0]['name']} に送信済みのアドレスを戻しました")
+
+
 def restore_lost_email():
     """2026-09-30 の宛先検査の不具合（gmail.com を mail.com と誤判定）で消した1件を戻す。
     候補がちょうど1店のときだけ戻し、それ以外は候補を記録するだけ（別の店に付けないため）。"""
@@ -213,7 +226,10 @@ def clean_emails():
     """保存済みの宛先を検査し、送ってはいけないアドレスを消す（送信待ちのメールも取り消す）。何度実行しても同じ結果。"""
     from .collect import valid_email
     with db() as c:
-        bad = [r for r in c.execute("SELECT id, email FROM shops WHERE email IS NOT NULL") if not valid_email(r["email"])]
+        # すでにメールを送った店のアドレスは残す（返信を取り込むときに店を特定するため）
+        bad = [r for r in c.execute("""SELECT id, email FROM shops WHERE email IS NOT NULL AND id NOT IN
+                                       (SELECT shop_id FROM touches WHERE channel='email' AND status='sent')""")
+               if not valid_email(r["email"])]
         for r in bad:
             c.execute("UPDATE shops SET email=NULL WHERE id=?", (r["id"],))
             c.execute("DELETE FROM touches WHERE shop_id=? AND channel='email' AND status IN ('queued','dryrun')", (r["id"],))

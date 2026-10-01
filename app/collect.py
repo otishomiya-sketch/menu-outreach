@@ -28,6 +28,7 @@ OWNER_RE = re.compile(r"(?:オーナー|店主|代表(?:取締役)?|料理長|�
 BAD_EMAIL_PARTS = ("example.", "sentry", "wixpress", ".png", ".jpg", ".gif", "@2x", "domain.")
 # 飲食店ではない宛先（役所・学校など）と、ホームページのひな形に入っている見本アドレス
 BAD_EMAIL_DOMAINS = (".lg.jp", ".go.jp", ".ed.jp", ".ac.jp", ".or.jp", "example.com", "example.jp", "mail.com", "test.com")
+ISP_OR_JP = ("plala.or.jp", "people.or.jp", "kcn.or.jp", "ccn.or.jp")
 # 役場・市役所など（例: town.taiki.hokkaido.jp、city.sapporo.jp）
 GOV_DOMAIN_RE = re.compile(r"(^|\.)(town|city|vill|pref|metro)\.[a-z0-9-]+(\.[a-z0-9-]+)?\.jp$")
 
@@ -37,6 +38,8 @@ FOOD_WORDS = ("料理", "レストラン", "食堂", "居酒屋", "酒場", "カ
               "菓子", "スイーツ", "デザート", "甘味", "バー", "ビストロ", "ダイニング", "ピザ", "カレー", "ハンバーガー",
               "ハンバーグ", "お好み焼", "鉄板焼", "天ぷら", "とんかつ", "ジンギスカン", "餃子", "ステーキ", "しゃぶしゃぶ",
               "鍋", "もつ", "ホルモン", "丼", "洋食", "和食", "中華", "食事", "ビアホール", "クレープ", "ドーナツ",
+              "軽食", "ベーグル", "チョコレート", "パティスリー", "ジェラート", "アイス", "ジュース", "ティー", "茶",
+              "タピオカ", "惣菜", "テイクアウト", "フード", "グリル", "キッチン", "サンド", "ワイン", "ビール", "酒",
               "restaurant", "cafe", "café", "bar", "bakery", "ramen", "izakaya", "diner", "bistro")
 # 飲食の語があっても、施設そのものが飲食店ではないもの
 NOT_FOOD_WORDS = ("ホテル", "旅館", "民宿", "ペンション", "キャンプ", "動物園", "道の駅", "観光", "公園", "温泉", "スーパー",
@@ -62,6 +65,8 @@ def valid_email(e):
         return False
     local, domain = e.rsplit("@", 1)
     # ".lg.jp" のように点で始まるものは末尾一致、それ以外はドメイン完全一致（gmail.com を mail.com と誤判定しない）
+    if domain.endswith(ISP_OR_JP):   # .or.jp でも一般向けプロバイダのアドレスは個人・お店のもの
+        return local not in BAD_EMAIL_LOCALS
     if local in BAD_EMAIL_LOCALS or GOV_DOMAIN_RE.search(domain) or any(
             domain.endswith(d) if d.startswith(".") else domain == d for d in BAD_EMAIL_DOMAINS):
         return False
