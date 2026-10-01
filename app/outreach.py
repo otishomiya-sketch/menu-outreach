@@ -121,6 +121,13 @@ def seed_variants():
 
 # ---------- 計画 ----------
 
+def _ig_verified(conn, shop_id):
+    """Instagramアカウントがその店のものと確認できているか（解析で取得でき、名前などが一致）。"""
+    from .enrich import MATCH_OK
+    row = conn.execute("SELECT error, ig_match FROM ig_stats WHERE shop_id=?", (shop_id,)).fetchone()
+    return bool(row) and not row["error"] and (row["ig_match"] or 0) >= MATCH_OK
+
+
 def _available(shop):
     return {
         "instagram": bool(shop["instagram"]),
@@ -164,6 +171,8 @@ def plan():
             if not is_food_shop(s["category"]):
                 continue
             avail = _available(s)
+            if avail["instagram"] and not _ig_verified(conn, s["id"]):
+                avail["instagram"] = False   # 違う相手に送らないよう、確認できたアカウントだけ
             if avail["email"] and conn.execute(
                     """SELECT 1 FROM touches t JOIN shops x ON x.id=t.shop_id WHERE t.channel='email'
                        AND t.status IN ('sent','queued') AND lower(x.email)=lower(?)""", (s["email"],)).fetchone():

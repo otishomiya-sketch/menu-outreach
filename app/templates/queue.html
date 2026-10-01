@@ -24,6 +24,10 @@
     </div>
     {% if ch == 'instagram' %}<a class="btn sub" target="_blank" href="https://www.instagram.com/{{ t.instagram }}/">プロフィールを見る</a>{% endif %}
   </div>
+  {% if ch == 'instagram' and (t.full_name or t.ig_match_note) %}
+  <div class="mut" style="margin-top:6px">Instagramの名前：<b>{{ t.full_name or '（なし）' }}</b>{% if t.external_url %}・リンク {{ t.external_url }}{% endif %}
+    ・判定：{{ t.ig_match_note or '' }}　<span>店名と違う場合は「送れない」を押してください</span></div>
+  {% endif %}
   {% if t.thumbs %}
   <div class="thumbs">{% for u in t.thumbs.split('\n') %}<img src="{{ u }}" referrerpolicy="no-referrer" loading="lazy">{% endfor %}</div>
   {% endif %}

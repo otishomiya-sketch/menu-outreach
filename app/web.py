@@ -129,8 +129,8 @@ def queue(channel):
         abort(404)
     with db() as c:
         t = c.execute("""SELECT t.*, s.name, s.instagram, s.line_id, s.category, s.prefecture, s.score, s.owner_name,
-                                s.id AS sid, g.posts_30d, g.days_since_last, g.photo_weakness, g.thumbs, g.followers,
-                                g.vision_note, v.name AS vname
+                                s.id AS sid, s.website, g.posts_30d, g.days_since_last, g.photo_weakness, g.thumbs, g.followers,
+                                g.vision_note, g.full_name, g.external_url, g.ig_match_note, v.name AS vname
                          FROM touches t JOIN shops s ON s.id=t.shop_id LEFT JOIN ig_stats g ON g.shop_id=s.id
                          LEFT JOIN variants v ON v.id=t.variant_id
                          WHERE t.channel=? AND t.status='queued' ORDER BY s.score DESC LIMIT 1""", (channel,)).fetchone()

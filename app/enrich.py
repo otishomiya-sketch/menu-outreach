@@ -8,8 +8,11 @@
   2. Apify の instagram-profile-scraper（APIFY_API_TOKEN。公式APIが無いとき）
 """
 import os
+import re
 import time
+import unicodedata
 from datetime import datetime, timezone
+from urllib.parse import urlparse
 
 import requests
 
@@ -29,7 +32,7 @@ def _parse_ts(s):
 
 def via_graph(username, n_media):
     fields = (f"business_discovery.username({username})"
-              f"{{username,name,biography,followers_count,media_count,"
+              f"{{username,name,biography,website,followers_count,media_count,"
               f"media.limit({n_media}){{timestamp,media_type,media_url,thumbnail_url,permalink}}}}")
     r = requests.get(f"{GRAPH}/{os.environ['IG_BD_USER_ID']}",
                      params={"fields": fields, "access_token": os.environ["IG_BD_ACCESS_TOKEN"]}, timeout=20)
@@ -40,7 +43,7 @@ def via_graph(username, n_media):
     media = bd.get("media", {}).get("data", [])
     return {
         "followers": bd.get("followers_count"), "media_count": bd.get("media_count"),
-        "biography": bd.get("biography") or "",
+        "biography": bd.get("biography") or "", "full_name": bd.get("name") or "", "external_url": bd.get("website") or "",
         "timestamps": [_parse_ts(m["timestamp"]) for m in media],
         "images": [m.get("thumbnail_url") if m.get("media_type") == "VIDEO" else m.get("media_url")
                    for m in media if m.get("media_url") or m.get("thumbnail_url")],
@@ -58,12 +61,56 @@ def via_apify(usernames, n_media):
         posts = (it.get("latestPosts") or [])[:n_media]
         out[(it.get("username") or "").lower()] = {
             "followers": it.get("followersCount"), "media_count": it.get("postsCount"),
-            "biography": it.get("biography") or "",
+            "biography": it.get("biography") or "", "full_name": it.get("fullName") or "",
+            "external_url": it.get("externalUrl") or "",
             "timestamps": [_parse_ts(p["timestamp"]) for p in posts if p.get("timestamp")],
             "images": [p.get("displayUrl") for p in posts if p.get("displayUrl")],
             "source": "apify",
         }
     return out
+
+
+GENERIC_WORDS = ("株式会社", "有限会社", "本店", "支店", "店舗", "公式", "official", "の店", "店", "レストラン", "restaurant",
+                 "カフェ", "cafe", "居酒屋", "食堂", "ラーメン", "焼肉", "バー", "bar", "キッチン", "kitchen")
+
+
+def _norm(text):
+    """比較用に、全角半角・大文字小文字・ひらがなカタカナ・記号の違いをそろえる。"""
+    t = unicodedata.normalize("NFKC", text or "").lower()
+    t = "".join(chr(ord(ch) + 0x60) if "ぁ" <= ch <= "ゖ" else ch for ch in t)   # ひらがな → カタカナ
+    return re.sub(r"[\s\W_]+", "", t)
+
+
+def _host(url):
+    h = urlparse(url if "//" in (url or "") else "//" + (url or "")).netloc.lower()
+    return h[4:] if h.startswith("www.") else h
+
+
+def match_score(shop, prof):
+    """Instagramアカウントがその店のものか（0〜1）と、判定の理由。0.6以上を一致とみなす。"""
+    site, link = _host(shop["website"] or ""), _host(prof.get("external_url") or "")
+    if site and link and "instagram.com" not in site and (site == link or site.endswith("." + link) or link.endswith("." + site)):
+        return 1.0, "プロフィールのリンクが公式サイトと同じ"
+    def core(text):
+        n = _norm(text)
+        for w in GENERIC_WORDS:
+            n = n.replace(_norm(w), "")
+        return n if len(n) >= 2 else _norm(text)
+
+    # 「らーめん山頭火 旭川本店」のような支店名つきは、空白より前（ブランド名）でも比べる
+    first = re.split(r"[\s　]+", (shop["name"] or "").strip())[0]
+    candidates = [c for c in dict.fromkeys([core(shop["name"]), core(first)]) if len(c) >= 2]
+    name = candidates[0] if candidates else ""
+    target = _norm(prof.get("full_name")) + _norm(prof.get("biography")) + _norm(prof.get("username"))
+    if any(c in target for c in candidates):
+        return 0.9, "名前か自己紹介に店名がある"
+    grams = {name[i:i + 2] for i in range(len(name) - 1)}
+    if grams:
+        ratio = sum(1 for g in grams if g in target) / len(grams)
+        if ratio >= 0.6:
+            return 0.7, f"店名の大部分が一致（{ratio:.0%}）"
+        return round(ratio * 0.5, 2), f"店名と一致しない（{ratio:.0%}）"
+    return 0.0, "比べられる店名がない"
 
 
 def activity_score(posts_30d, last, cfg):
@@ -129,7 +176,16 @@ def _save(shop_id, username, prof, cfg):
                 print("  → 設定の問題のため、今回の残りはAI採点をせずに進めます")
     m = OWNER_RE.search(prof["biography"] or "")
     with db() as conn:
+        shop = conn.execute("SELECT name, website FROM shops WHERE id=?", (shop_id,)).fetchone()
+        score, note = match_score(shop, {**prof, "username": username})
         _write(conn, shop_id, username, prof, posts_30d, last, imgs, pq, vis, m)
+        conn.execute("UPDATE ig_stats SET full_name=?, external_url=?, ig_match=?, ig_match_note=? WHERE shop_id=?",
+                     (prof.get("full_name"), prof.get("external_url"), score, note, shop_id))
+        if score < MATCH_OK:
+            print(f"  要確認 @{username}（{shop['name']}）: {note}")
+
+
+MATCH_OK = 0.6   # これ以上で「その店のアカウント」とみなし、DMの送信先にする
 
 
 def _write(conn, shop_id, username, prof, posts_30d, last, imgs, pq, vis, m):
@@ -155,7 +211,8 @@ def run(limit=200, refresh_days=30):
         rows = conn.execute(
             """SELECT s.id, s.instagram FROM shops s LEFT JOIN ig_stats g ON g.shop_id=s.id
                WHERE s.instagram IS NOT NULL AND s.stage='new'
-                 AND (g.shop_id IS NULL OR g.fetched_at < datetime('now', ?))
+                 AND (g.shop_id IS NULL OR g.fetched_at < datetime('now', ?) OR (g.ig_match IS NULL AND g.error IS NULL))
+               ORDER BY (g.shop_id IS NOT NULL AND g.ig_match IS NULL) DESC
                LIMIT ?""", (f"-{refresh_days} days", limit)).fetchall()
     print(f"[enrich] 対象 {len(rows)}店 / 取得元: {'Graph API' if use_graph else 'Apify'}")
 

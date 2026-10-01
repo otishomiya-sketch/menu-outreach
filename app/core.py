@@ -186,6 +186,11 @@ def db():
 def init_db():
     with db() as c:
         c.executescript(SCHEMA)
+        # 後から足した列（既存のDBにも追加する）
+        have = {r[1] for r in c.execute("PRAGMA table_info(ig_stats)")}
+        for col, typ in (("full_name", "TEXT"), ("external_url", "TEXT"), ("ig_match", "REAL"), ("ig_match_note", "TEXT")):
+            if col not in have:
+                c.execute(f"ALTER TABLE ig_stats ADD COLUMN {col} {typ}")
 
 
 def restore_sent_emails():
@@ -235,6 +240,15 @@ def clean_emails():
             c.execute("DELETE FROM touches WHERE shop_id=? AND channel='email' AND status IN ('queued','dryrun')", (r["id"],))
     if bad:
         print(f"[clean] 送信できない宛先 {len(bad)}件を削除: " + ", ".join(r["email"][:40] for r in bad[:10]))
+    # Instagramアカウントがその店のものと確認できていないDMの送信待ちを取り消す（翌朝の解析で確認し直す）
+    with db() as c:
+        unverified = c.execute("""SELECT t.id FROM touches t LEFT JOIN ig_stats g ON g.shop_id=t.shop_id
+                                  WHERE t.channel='instagram' AND t.status='queued'
+                                    AND (g.shop_id IS NULL OR g.error IS NOT NULL OR COALESCE(g.ig_match, 0) < 0.6)""").fetchall()
+        for r in unverified:
+            c.execute("DELETE FROM touches WHERE id=?", (r["id"],))
+    if unverified:
+        print(f"[clean] アカウント未確認のDM送信待ち {len(unverified)}件を取り消し（翌朝の解析で確認後、確認できた店だけ戻します）")
     # 飲食店ではない店（ホテル・キャンプ場・道の駅など）の送信待ちを取り消す
     from .collect import is_food_shop
     with db() as c:
