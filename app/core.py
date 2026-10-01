@@ -219,6 +219,16 @@ def clean_emails():
             c.execute("DELETE FROM touches WHERE shop_id=? AND channel='email' AND status IN ('queued','dryrun')", (r["id"],))
     if bad:
         print(f"[clean] 送信できない宛先 {len(bad)}件を削除: " + ", ".join(r["email"][:40] for r in bad[:10]))
+    # 飲食店ではない店（ホテル・キャンプ場・道の駅など）の送信待ちを取り消す
+    from .collect import is_food_shop
+    with db() as c:
+        non_food = [r for r in c.execute("""SELECT DISTINCT s.id, s.name, s.category FROM shops s JOIN touches t ON t.shop_id=s.id
+                                           WHERE t.status IN ('queued','dryrun')""") if not is_food_shop(r["category"])]
+        for r in non_food:
+            c.execute("DELETE FROM touches WHERE shop_id=? AND status IN ('queued','dryrun')", (r["id"],))
+    if non_food:
+        print(f"[clean] 飲食店ではない {len(non_food)}店の送信待ちを取り消し: " +
+              ", ".join(f"{r['name']}（{r['category']}）" for r in non_food[:10]))
     return len(bad)
 
 

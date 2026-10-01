@@ -21,7 +21,7 @@ import requests
 import yaml
 
 from . import bandit
-from .collect import valid_email
+from .collect import is_food_shop, valid_email
 from .core import (CHANNELS, ROOT, STAGES, TERMINAL, db, is_suppressed, settings,
                    suppression_keys)
 
@@ -161,7 +161,13 @@ def plan():
                 continue
             if conn.execute("SELECT 1 FROM touches WHERE shop_id=? AND status='queued'", (s["id"],)).fetchone():
                 continue
+            if not is_food_shop(s["category"]):
+                continue
             avail = _available(s)
+            if avail["email"] and conn.execute(
+                    """SELECT 1 FROM touches t JOIN shops x ON x.id=t.shop_id WHERE t.channel='email'
+                       AND t.status IN ('sent','queued') AND lower(x.email)=lower(?)""", (s["email"],)).fetchone():
+                avail["email"] = False   # 同じアドレスには1通だけ（系列店などで共通のアドレス）
             channel = next((c for c in ch["priority"] if avail[c] and c not in used and room[c] > 0), None)
             if not channel:
                 continue
@@ -364,6 +370,7 @@ def send_emails(live=None):
     print(f"[email] 送信対象 {len(rows)}件（{'本番・' + mail_mode() if live else 'ドライラン：実際には送りません'}）")
     sender = (_ResendSender(cfg) if mail_mode() == "resend" else _SmtpSender(cfg)) if live else None
     done_shops = set()   # 同じ店に2通送らない
+    done_addrs = set()   # 同じアドレスに2通送らない
     try:
         for i, r in enumerate(rows):
             with db() as conn:
@@ -377,8 +384,17 @@ def send_emails(live=None):
                         "SELECT 1 FROM touches WHERE shop_id=? AND channel='email' AND status='sent'", (r["id"],)).fetchone():
                     mark_sent(conn, r["touch_id"], "skipped", "同じ店に送信済み")
                     continue
+                if r["email"].lower() in done_addrs or conn.execute(
+                        """SELECT 1 FROM touches t JOIN shops x ON x.id=t.shop_id WHERE t.channel='email' AND t.status='sent'
+                           AND lower(x.email)=lower(?)""", (r["email"],)).fetchone():
+                    mark_sent(conn, r["touch_id"], "skipped", "同じアドレスに送信済み")
+                    continue
+                if not is_food_shop(r["category"]):
+                    mark_sent(conn, r["touch_id"], "skipped", "飲食店ではない")
+                    continue
                 v = conn.execute("SELECT * FROM variants WHERE id=?", (r["variant_id"],)).fetchone()
             done_shops.add(r["id"])
+            done_addrs.add(r["email"].lower())
             subject, body = render(v, r, "email", cfg)
             with db() as conn:
                 conn.execute("UPDATE touches SET message=? WHERE id=?", (body, r["touch_id"]))
