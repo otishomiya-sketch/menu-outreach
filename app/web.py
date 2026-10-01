@@ -95,9 +95,13 @@ def home():
     cfg = settings()
     with db() as c:
         funnel = {r["stage"]: r["n"] for r in c.execute("SELECT stage, COUNT(*) n FROM shops GROUP BY stage")}
+        # 送信数は「今日送ったもの」（いつリストに入ったかは問わない）、残りは送信待ちの全件
         today = {r["channel"]: dict(r) for r in c.execute(
-            """SELECT channel, SUM(status='queued') q, SUM(status='sent') s, SUM(status='dryrun') d FROM touches
-               WHERE planned_on=date('now','localtime') GROUP BY channel""")}
+            """SELECT channel,
+                      SUM(status='queued') q,
+                      SUM(status='sent' AND date(sent_at)=date('now','localtime')) s,
+                      SUM(status='dryrun' AND date(sent_at)=date('now','localtime')) d
+               FROM touches GROUP BY channel""")}
         total = c.execute("SELECT COUNT(*) FROM shops").fetchone()[0]
         scored = c.execute("SELECT COUNT(*) FROM shops WHERE score IS NOT NULL").fetchone()[0]
     return render_template("home.html", funnel=funnel, today=today, total=total, scored=scored,
