@@ -10,7 +10,7 @@ import os
 import re
 
 from . import bandit
-from .core import CHANNELS, db, settings
+from .core import CHANNELS, anthropic_client, db, settings
 
 REQUIRED = ["{greeting}", "{trial_url}", "{reply_channel}", "Menu Photo Pro"]
 FACTS = ["10枚", "1,980円"]
@@ -73,8 +73,6 @@ def hypothesize(conn, rep):
         return "ANTHROPIC_API_KEY 未設定のため、文面の自動提案はスキップ"
     if conn.execute("SELECT COUNT(*) FROM variants WHERE status='proposed'").fetchone()[0] >= 2:
         return "承認待ちの提案が2本あるため、新しい提案は作りません"
-    import anthropic
-
     variants = [dict(r) for r in conn.execute("SELECT id,name,status,body,rationale FROM variants")]
     base = max((v for v in variants if v["status"] == "active"), key=lambda v: v["id"], default=variants[0])
     past = [dict(r) for r in conn.execute("SELECT title,proposal,status,result FROM hypotheses ORDER BY id DESC LIMIT 10")]
@@ -100,8 +98,7 @@ Instagram DM・メール・LINEで飲食店オーナーに送る営業文の結�
 JSONだけを返してください:
 {{"title": "仮説の短い名前", "proposal": "何を変えるか", "rationale": "データ上の根拠", "expected_impact": "期待する効果",
  "verification_method": "どう判定するか", "subject": "メール件名", "body": "本文"}}"""
-    client = anthropic.Anthropic()
-    msg = client.messages.create(model=settings()["improve"]["proposal_model"], max_tokens=3000,
+    msg = anthropic_client().messages.create(model=settings()["improve"]["proposal_model"], max_tokens=3000,
                                  messages=[{"role": "user", "content": prompt}])
     text = "".join(b.text for b in msg.content if b.type == "text")
     try:

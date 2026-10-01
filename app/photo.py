@@ -7,12 +7,11 @@ use_vision が true なら Claude にも見せて補正する。
 import base64
 import io
 import json
-import os
 
 import requests
 from PIL import Image, ImageFilter, ImageStat
 
-from .core import clamp01
+from .core import anthropic_client, clamp01
 
 
 def fetch(url, timeout=15):
@@ -66,8 +65,6 @@ JSONだけを返してください: {"weakness": 0〜1の数値（1=素人感が
 
 def vision_score(urls, model):
     """Claude に最大4枚まとめて見せて採点させる。"""
-    import anthropic
-
     content = []
     for u in urls[:4]:
         try:
@@ -81,8 +78,7 @@ def vision_score(urls, model):
     if not content:
         return None
     content.append({"type": "text", "text": VISION_PROMPT})
-    client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
-    msg = client.messages.create(model=model, max_tokens=300, messages=[{"role": "user", "content": content}])
+    msg = anthropic_client().messages.create(model=model, max_tokens=300, messages=[{"role": "user", "content": content}])
     text = "".join(b.text for b in msg.content if b.type == "text")
     try:
         data = json.loads(text[text.index("{"): text.rindex("}") + 1])

@@ -109,17 +109,30 @@ def rescore(conn, shop_id):
                  (round(score, 1), activity, weak, reach, shop_id))
 
 
-def _save(conn, shop_id, username, prof, cfg):
+_vision = {"off": False}   # 設定の問題で失敗したら、その回の残りは試さない
+
+
+def _save(shop_id, username, prof, cfg):
+    """写真のダウンロードと採点（時間がかかる）を先に済ませ、DBへの書き込みは最後に短く行う。
+    書き込み中はDBがふさがり、ダッシュボードの操作が「database is locked」になるため。"""
     posts_30d, last = activity_of(prof["timestamps"])
     imgs = [u for u in prof["images"] if u][: cfg["images_per_shop"]]
     pq = photo.analyze(imgs) or {}
     vis = None
-    if cfg.get("use_vision") and imgs and os.environ.get("ANTHROPIC_API_KEY"):
+    if cfg.get("use_vision") and imgs and os.environ.get("ANTHROPIC_API_KEY") and not _vision["off"]:
         try:
             vis = photo.vision_score(imgs, cfg["vision_model"])
         except Exception as e:
-            print(f"  vision失敗: {e}")
+            print(f"  写真のAI採点に失敗: {e}")
+            if any(w in str(e) for w in ("workspace", "authentication", "401", "403", "credit")):
+                _vision["off"] = True
+                print("  → 設定の問題のため、今回の残りはAI採点をせずに進めます")
     m = OWNER_RE.search(prof["biography"] or "")
+    with db() as conn:
+        _write(conn, shop_id, username, prof, posts_30d, last, imgs, pq, vis, m)
+
+
+def _write(conn, shop_id, username, prof, posts_30d, last, imgs, pq, vis, m):
     if m:
         conn.execute("UPDATE shops SET owner_name=COALESCE(owner_name, ?) WHERE id=?", (m.group(1).strip(), shop_id))
     conn.execute(
@@ -134,6 +147,7 @@ def _save(conn, shop_id, username, prof, cfg):
 
 def run(limit=200, refresh_days=30):
     cfg = settings()["scoring"]
+    _vision["off"] = False
     use_graph = bool(os.environ.get("IG_BD_USER_ID") and os.environ.get("IG_BD_ACCESS_TOKEN"))
     if not use_graph and not os.environ.get("APIFY_API_TOKEN"):
         raise SystemExit("IG_BD_* か APIFY_API_TOKEN のどちらかを .env に設定してください")
@@ -149,8 +163,7 @@ def run(limit=200, refresh_days=30):
         for i, r in enumerate(rows, 1):
             try:
                 prof = via_graph(r["instagram"], cfg["images_per_shop"])
-                with db() as conn:
-                    _save(conn, r["id"], r["instagram"], prof, cfg)
+                _save(r["id"], r["instagram"], prof, cfg)
             except Exception as e:
                 with db() as conn:
                     conn.execute("INSERT OR REPLACE INTO ig_stats (shop_id,username,error) VALUES (?,?,?)",
@@ -161,13 +174,13 @@ def run(limit=200, refresh_days=30):
         for i in range(0, len(rows), 50):
             chunk = rows[i:i + 50]
             profs = via_apify([r["instagram"] for r in chunk], cfg["images_per_shop"])
-            with db() as conn:
-                for r in chunk:
-                    prof = profs.get(r["instagram"])
-                    if prof:
-                        _save(conn, r["id"], r["instagram"], prof, cfg)
-                    else:
-                        conn.execute("INSERT OR REPLACE INTO ig_stats (shop_id,username,error) VALUES (?,?,?)",
+            for r in chunk:
+                prof = profs.get(r["instagram"])
+                if prof:
+                    _save(r["id"], r["instagram"], prof, cfg)
+                    continue
+                with db() as conn:
+                    conn.execute("INSERT OR REPLACE INTO ig_stats (shop_id,username,error) VALUES (?,?,?)",
                                      (r["id"], r["instagram"], "取得できず（非公開・存在しない等）"))
             print(f"  {min(i + 50, len(rows))}/{len(rows)}")
 

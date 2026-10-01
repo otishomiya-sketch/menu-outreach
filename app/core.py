@@ -235,6 +235,15 @@ def prefecture_of(address):
     return None
 
 
+def anthropic_client():
+    """Claude のクライアント。ワークスペースに属さないキーのときは ANTHROPIC_WORKSPACE_ID を付けて送る。"""
+    import anthropic
+    headers = {}
+    if os.environ.get("ANTHROPIC_WORKSPACE_ID"):
+        headers["anthropic-workspace-id"] = os.environ["ANTHROPIC_WORKSPACE_ID"].strip()
+    return anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", "").strip(), default_headers=headers or None)
+
+
 def clamp01(x):
     return max(0.0, min(1.0, x))
 
