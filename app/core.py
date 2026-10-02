@@ -193,6 +193,17 @@ def init_db():
                 c.execute(f"ALTER TABLE ig_stats ADD COLUMN {col} {typ}")
 
 
+def fix_reported_dm():
+    """2026-10-02 の報告：BENBEYA 本店は受信制限で届かなかったのに「送信した」になっていた分を直す。"""
+    from .outreach import mark_dm_undelivered
+    with db() as c:
+        rows = c.execute("""SELECT s.id, s.name FROM shops s JOIN touches t ON t.shop_id=s.id
+                            WHERE s.name LIKE 'BENBEYA%本店%' AND t.channel='instagram' AND t.status='sent'""").fetchall()
+        if len(rows) == 1:
+            mark_dm_undelivered(c, rows[0]["id"])
+            print(f"[restore] {rows[0]['name']} のDMを「届かなかった」に直しました")
+
+
 def restore_sent_emails():
     """2026-10-01 の掃除で、送信済みの店から消してしまったアドレスを戻す（返信の取り込みに必要）。"""
     fixes = {"%まぶりっと%": "maburitto@wave.plala.or.jp", "%よりみち%": "shoko_kanko-kakari@town.taiki.hokkaido.jp",
@@ -249,6 +260,17 @@ def clean_emails():
             c.execute("DELETE FROM touches WHERE id=?", (r["id"],))
     if unverified:
         print(f"[clean] アカウント未確認のDM送信待ち {len(unverified)}件を取り消し（翌朝の解析で確認後、確認できた店だけ戻します）")
+    # 同じInstagramアカウント（系列店の共通アカウントなど）に送信済み・送信待ちが重複している分を取り消す
+    with db() as c:
+        dups = c.execute("""SELECT t.id FROM touches t JOIN shops s ON s.id=t.shop_id
+                            WHERE t.channel='instagram' AND t.status='queued' AND EXISTS (
+                              SELECT 1 FROM touches t2 JOIN shops s2 ON s2.id=t2.shop_id
+                              WHERE t2.channel='instagram' AND t2.id<>t.id AND lower(s2.instagram)=lower(s.instagram)
+                                AND (t2.status='sent' OR (t2.status='queued' AND t2.id<t.id)))""").fetchall()
+        for r in dups:
+            c.execute("DELETE FROM touches WHERE id=?", (r["id"],))
+    if dups:
+        print(f"[clean] 同じInstagramアカウントへの重複したDM送信待ち {len(dups)}件を取り消し")
     # 飲食店ではない店（ホテル・キャンプ場・道の駅など）の送信待ちを取り消す
     from .collect import is_food_shop
     with db() as c:

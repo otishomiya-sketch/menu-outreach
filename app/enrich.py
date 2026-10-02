@@ -88,6 +88,12 @@ def _host(url):
 
 def match_score(shop, prof):
     """Instagramアカウントがその店のものか（0〜1）と、判定の理由。0.6以上を一致とみなす。"""
+    from .collect import NOT_FOOD_WORDS
+    # 道の駅・ホテルなど、施設全体のアカウント（中の飲食店のものではない）
+    fname = (prof.get("full_name") or "").lower()
+    facility = next((w for w in NOT_FOOD_WORDS if w.lower() in fname), None)
+    if facility:
+        return 0.3, f"施設のアカウント（名前に「{facility}」）"
     site, link = _host(shop["website"] or ""), _host(prof.get("external_url") or "")
     if site and link and "instagram.com" not in site and (site == link or site.endswith("." + link) or link.endswith("." + site)):
         return 1.0, "プロフィールのリンクが公式サイトと同じ"
@@ -102,8 +108,11 @@ def match_score(shop, prof):
     candidates = [c for c in dict.fromkeys([core(shop["name"]), core(first)]) if len(c) >= 2]
     name = candidates[0] if candidates else ""
     target = _norm(prof.get("full_name")) + _norm(prof.get("biography")) + _norm(prof.get("username"))
-    if any(c in target for c in candidates):
+    if candidates and candidates[0] in target:
         return 0.9, "名前か自己紹介に店名がある"
+    if any(c in target for c in candidates[1:]):
+        # 支店名を除いたブランド名だけが一致。本部・ブランド全体の公式アカウントのことがある
+        return 0.65, "ブランド名だけ一致（本部・ブランドのアカウントの可能性。支店のアカウントか確認）"
     grams = {name[i:i + 2] for i in range(len(name) - 1)}
     if grams:
         ratio = sum(1 for g in grams if g in target) / len(grams)

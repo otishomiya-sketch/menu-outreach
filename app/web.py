@@ -248,7 +248,9 @@ def leads():
 def shop(sid):
     with db() as c:
         if request.method == "POST":
-            if request.form.get("kind"):
+            if request.form.get("kind") == "dm_undelivered":
+                outreach.mark_dm_undelivered(c, sid)
+            elif request.form.get("kind"):
                 outreach.record_outcome(c, sid, request.form["kind"], request.form.get("note") or None)
             else:
                 c.execute("UPDATE shops SET owner_name=?, instagram=?, line_id=?, email=? WHERE id=?",

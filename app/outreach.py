@@ -173,6 +173,10 @@ def plan():
             avail = _available(s)
             if avail["instagram"] and not _ig_verified(conn, s["id"]):
                 avail["instagram"] = False   # 違う相手に送らないよう、確認できたアカウントだけ
+            if avail["instagram"] and conn.execute(
+                    """SELECT 1 FROM touches t JOIN shops x ON x.id=t.shop_id WHERE t.channel='instagram'
+                       AND t.status IN ('sent','queued') AND lower(x.instagram)=lower(?)""", (s["instagram"],)).fetchone():
+                avail["instagram"] = False   # 系列店などで同じアカウントには1回だけ
             if avail["email"] and conn.execute(
                     """SELECT 1 FROM touches t JOIN shops x ON x.id=t.shop_id WHERE t.channel='email'
                        AND t.status IN ('sent','queued') AND lower(x.email)=lower(?)""", (s["email"],)).fetchone():
@@ -238,6 +242,19 @@ def mark_sent(conn, touch_id, status="sent", error=None):
                  (status, error, touch_id))
     if status == "sent":   # ドライランは送信扱いにしない（本番に切り替えたら改めて送られる）
         conn.execute("UPDATE shops SET stage='contacted' WHERE id=? AND stage='new'", (t["shop_id"],))
+
+
+def mark_dm_undelivered(conn, shop_id, note="DMが届かなかった（相手が受信を制限）"):
+    """「送信した」を押した後に、DMが届いていなかったと分かったとき。送信済みの記録を取り消し、
+    このお店のInstagramは送り先から外す（メールがあれば、間をおいてメールで送れる）。"""
+    t = conn.execute("""SELECT id FROM touches WHERE shop_id=? AND channel='instagram' AND status='sent'
+                        ORDER BY sent_at DESC LIMIT 1""", (shop_id,)).fetchone()
+    if t:
+        conn.execute("UPDATE touches SET status='failed', error=? WHERE id=?", (note, t["id"]))
+    conn.execute("UPDATE shops SET instagram=NULL WHERE id=?", (shop_id,))
+    if not conn.execute("SELECT 1 FROM touches WHERE shop_id=? AND status='sent'", (shop_id,)).fetchone():
+        conn.execute("UPDATE shops SET stage='new' WHERE id=? AND stage='contacted'", (shop_id,))
+    return bool(t)
 
 
 def record_outcome(conn, shop_id, kind, note=None, touch_id=None):

@@ -28,6 +28,12 @@
     <button class="ng" name="kind" value="unsubscribed">停止希望</button>
     <button class="sub" name="kind" value="note">メモだけ</button>
   </div>
+  {% if s.instagram %}
+  <div class="row" style="margin-top:8px">
+    <button class="sub" name="kind" value="dm_undelivered">Instagram DMが届かなかった</button>
+    <span class="mut">「送信した」を押した後に「メッセージを受信できません」と出ていた場合。送信済みの記録を取り消します</span>
+  </div>
+  {% endif %}
 </form>
 
 <form method="post" class="card">

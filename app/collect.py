@@ -43,7 +43,7 @@ FOOD_WORDS = ("料理", "レストラン", "食堂", "居酒屋", "酒場", "カ
               "restaurant", "cafe", "café", "bar", "bakery", "ramen", "izakaya", "diner", "bistro")
 # 飲食の語があっても、施設そのものが飲食店ではないもの
 NOT_FOOD_WORDS = ("ホテル", "旅館", "民宿", "ペンション", "キャンプ", "動物園", "道の駅", "観光", "公園", "温泉", "スーパー",
-                  "コンビニ", "役場", "役所", "協会", "組合", "hotel", "campground")
+                  "コンビニ", "役場", "役所", "協会", "組合", "カラオケ", "スナック", "hotel", "campground", "karaoke")
 
 
 def is_food_shop(category):
