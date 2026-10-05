@@ -12,7 +12,7 @@ sender:
   contact: ""         # 任意: 電話番号 または URL
 
 service:
-  trial_url: "https://7ayyryczawpyuggappqsqqd.streamlit.app/?openExternalBrowser=1"
+  trial_url: "https://menu.otis.company/?openExternalBrowser=1"
   # true にすると URL に &ref=<店舗コード> を付ける。Menu Photo Pro 側で st.query_params["ref"] を
   # 記録すれば「どの店が・どの文面で」無料体験を始めたか自動で分かる
   append_ref: true
