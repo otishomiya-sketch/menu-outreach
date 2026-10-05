@@ -17,6 +17,7 @@ from . import jobs, outreach  # noqa: E402
 from .web import app  # noqa: E402
 
 outreach.seed_variants()
+outreach.refresh_queued_links()
 if os.environ.get("AUTO_DAILY_AT"):
     jobs.start_scheduler(os.environ["AUTO_DAILY_AT"])
 

@@ -86,6 +86,21 @@ def email_footer(cfg):
     return "\n".join(lines)
 
 
+def refresh_queued_links():
+    """送信待ちの文面に古いお試しURLが残っていたら、今の設定のURLで作り直す（URLを変えたとき用）。"""
+    cfg = settings()
+    base = cfg["service"]["trial_url"].split("?")[0]
+    with db() as conn:
+        rows = conn.execute("""SELECT t.id, t.channel, t.variant_id, t.message, s.* FROM touches t JOIN shops s ON s.id=t.shop_id
+                               WHERE t.status='queued' AND t.message NOT LIKE ?""", (f"%{base}%",)).fetchall()
+        for t in rows:
+            var = conn.execute("SELECT * FROM variants WHERE id=?", (t["variant_id"],)).fetchone()
+            if var:
+                conn.execute("UPDATE touches SET message=? WHERE id=?", (render(var, t, t["channel"], cfg)[1], t[0]))
+    if rows:
+        print(f"[links] 送信待ち {len(rows)}件の文面を、新しいお試しURLで作り直しました")
+
+
 VARIANT_RENAMES = {"A-原文": "A-詳しく説明", "B-初回あいさつ・短め": "B-短め"}
 
 
