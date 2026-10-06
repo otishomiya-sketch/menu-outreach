@@ -136,6 +136,15 @@ def seed_variants():
 
 # ---------- 計画 ----------
 
+def _same_name_contacted(conn, shop):
+    """同じ都道府県に同じ店名の行があり、そちらへ送信済み・送信待ちなら True（Googleマップで重複登録された店）。"""
+    if not shop["name"]:
+        return False
+    return conn.execute("""SELECT 1 FROM shops x JOIN touches t ON t.shop_id=x.id
+                           WHERE x.id<>? AND x.name=? AND COALESCE(x.prefecture,'')=COALESCE(?,'')
+                             AND t.status IN ('sent','queued')""", (shop["id"], shop["name"], shop["prefecture"])).fetchone() is not None
+
+
 def _ig_verified(conn, shop_id):
     """Instagramアカウントがその店のものと確認できているか（解析で取得でき、名前などが一致）。"""
     from .enrich import MATCH_OK
@@ -164,7 +173,8 @@ def plan():
             """SELECT s.*,
                   (SELECT COUNT(*) FROM touches t WHERE t.shop_id=s.id AND t.status IN ('sent','queued')) AS n_touch,
                   (SELECT MAX(t.sent_at) FROM touches t WHERE t.shop_id=s.id AND t.status='sent') AS last_touch,
-                  (SELECT GROUP_CONCAT(t.channel) FROM touches t WHERE t.shop_id=s.id AND t.status IN ('sent','queued')) AS used
+                  (SELECT GROUP_CONCAT(t.channel) FROM touches t WHERE t.shop_id=s.id
+                     AND t.status IN ('sent','queued','skipped','failed')) AS used
                 FROM shops s
                 WHERE s.stage IN ('new','contacted') AND s.score IS NOT NULL
                 ORDER BY s.score DESC""").fetchall()
@@ -185,6 +195,8 @@ def plan():
                 continue
             if not is_food_shop(s["category"]):
                 continue
+            if _same_name_contacted(conn, s):
+                continue   # 同じ店が別の行で登録されていて、すでに連絡済み
             avail = _available(s)
             if avail["instagram"] and not _ig_verified(conn, s["id"]):
                 avail["instagram"] = False   # 違う相手に送らないよう、確認できたアカウントだけ

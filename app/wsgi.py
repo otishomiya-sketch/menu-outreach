@@ -8,6 +8,8 @@ from .core import clean_emails, fix_reported_dm, init_db, load_env, restore_lost
 
 load_env()
 init_db()
+from .enrich import rescore_ig_matches  # noqa: E402
+rescore_ig_matches()   # 判定の基準を直したときに、保存済みのアカウントを判定し直す
 clean_emails()   # 役所・見本アドレスなど、送ってはいけない宛先を起動時に除去
 restore_lost_email()
 restore_sent_emails()

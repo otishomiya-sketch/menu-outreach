@@ -86,16 +86,35 @@ def _host(url):
     return h[4:] if h.startswith("www.") else h
 
 
-def match_score(shop, prof):
-    """Instagramアカウントがその店のものか（0〜1）と、判定の理由。0.6以上を一致とみなす。"""
+# グルメサイト・地域情報誌・まとめサービスなど、たくさんの店を紹介する側のアカウント
+PORTAL_WORDS = ("ヒトサラ", "hitosara", "食べログ", "tabelog", "ぐるなび", "gnavi", "ホットペッパー", "hotpepper", "retty",
+                "一休", "ikyu", "ozmall", "じゃらん", "jalan", "スナカラ", "snakara", "タウン情報", "情報誌", "グルメ情報",
+                "グルメガイド", "magazine", "マガジン", "フリーペーパー", "s-style", "エススタイル", "ぐるめ", "gourmet_",
+                "_gourmet", "グルメ部", "まとめ", "公式メディア", "web media", "webマガジン")
+# 店のサイトとしては扱わないドメイン（店ごとのページが同じドメインに並ぶサービス）
+PORTAL_HOSTS = ("hitosara.com", "tabelog.com", "gnavi.co.jp", "hotpepper.jp", "retty.me", "ikyu.com", "ozmall.co.jp",
+                "jalan.net", "snakara.jp", "instagram.com", "facebook.com", "linktr.ee", "lit.link", "ameblo.jp",
+                "machinavi.com", "favy.jp", "yelp.com", "tripadvisor.jp", "google.com", "goo.gl", "x.com", "twitter.com")
+FACILITY_EN = ("park", "hotel", "resort", "museum", "zoo", "station", "airport", "onsen", "michinoeki", "mall", "aquarium")
+
+
+def match_score(shop, prof, site_shared=False):
+    """Instagramアカウントがその店のものか（0〜1）と、判定の理由。0.6以上を一致とみなす。
+    site_shared: 店の「公式サイト」と同じドメインを、ほかの店も使っている（グルメサイトの掲載ページなど）"""
     from .collect import NOT_FOOD_WORDS
-    # 道の駅・ホテルなど、施設全体のアカウント（中の飲食店のものではない）
     fname = (prof.get("full_name") or "").lower()
-    facility = next((w for w in NOT_FOOD_WORDS if w.lower() in fname), None)
+    uname = (prof.get("username") or "").lower()
+    # グルメサイト・情報誌など、紹介する側のアカウント
+    portal = next((w for w in PORTAL_WORDS if w.lower() in fname or w.lower() in uname), None)
+    if portal:
+        return 0.2, f"紹介サイト・情報誌のアカウント（「{portal}」）"
+    # 道の駅・ホテル・公園など、施設全体のアカウント（中の飲食店のものではない）
+    facility = next((w for w in NOT_FOOD_WORDS + FACILITY_EN if w.lower() in fname or w.lower() in uname), None)
     if facility:
-        return 0.3, f"施設のアカウント（名前に「{facility}」）"
+        return 0.3, f"施設のアカウント（「{facility}」）"
     site, link = _host(shop["website"] or ""), _host(prof.get("external_url") or "")
-    if site and link and "instagram.com" not in site and (site == link or site.endswith("." + link) or link.endswith("." + site)):
+    site_is_shop = site and not site_shared and not any(site == h or site.endswith("." + h) for h in PORTAL_HOSTS)
+    if site_is_shop and link and (site == link or site.endswith("." + link) or link.endswith("." + site)):
         return 1.0, "プロフィールのリンクが公式サイトと同じ"
     def core(text):
         n = _norm(text)
@@ -186,7 +205,7 @@ def _save(shop_id, username, prof, cfg):
     m = OWNER_RE.search(prof["biography"] or "")
     with db() as conn:
         shop = conn.execute("SELECT name, website FROM shops WHERE id=?", (shop_id,)).fetchone()
-        score, note = match_score(shop, {**prof, "username": username})
+        score, note = match_score(shop, {**prof, "username": username}, site_shared=website_shared(conn, shop["website"]))
         _write(conn, shop_id, username, prof, posts_30d, last, imgs, pq, vis, m)
         conn.execute("UPDATE ig_stats SET full_name=?, external_url=?, ig_match=?, ig_match_note=? WHERE shop_id=?",
                      (prof.get("full_name"), prof.get("external_url"), score, note, shop_id))
@@ -195,6 +214,35 @@ def _save(shop_id, username, prof, cfg):
 
 
 MATCH_OK = 0.6   # これ以上で「その店のアカウント」とみなし、DMの送信先にする
+
+
+def website_shared(conn, website):
+    """同じドメインを「公式サイト」にしている店が2店以上あるか（＝グルメサイトなどの掲載ページ）。"""
+    host = _host(website or "")
+    if not host:
+        return False
+    n = conn.execute("SELECT COUNT(*) FROM shops WHERE website LIKE ? OR website LIKE ?",
+                     (f"%://{host}%", f"%://www.{host}%")).fetchone()[0]
+    return n >= 2
+
+
+def rescore_ig_matches():
+    """保存済みのプロフィール情報で、アカウントの一致判定をやり直す（判定の基準を直したとき用。通信はしない）。"""
+    changed = 0
+    with db() as conn:
+        rows = conn.execute("""SELECT g.shop_id, g.username, g.full_name, g.external_url, g.biography, g.ig_match,
+                                      s.name, s.website
+                               FROM ig_stats g JOIN shops s ON s.id=g.shop_id
+                               WHERE g.error IS NULL AND g.full_name IS NOT NULL""").fetchall()
+        for r in rows:
+            score, note = match_score(r, {"full_name": r["full_name"], "external_url": r["external_url"],
+                                          "biography": r["biography"], "username": r["username"]},
+                                      site_shared=website_shared(conn, r["website"]))
+            if score != r["ig_match"]:
+                conn.execute("UPDATE ig_stats SET ig_match=?, ig_match_note=? WHERE shop_id=?", (score, note, r["shop_id"]))
+                changed += 1
+    if changed:
+        print(f"[match] アカウントの一致判定を {changed}店でやり直しました")
 
 
 def _write(conn, shop_id, username, prof, posts_30d, last, imgs, pq, vis, m):
