@@ -28,11 +28,11 @@
 | 5 | Instagram アカウントIDの取得 | ✅ 完了（`17841448043763697`） |
 | 6 | Railway に `IG_BD_USER_ID` を設定 | ✅ 完了 |
 | 7 | Railway に `GRAPH_API_VERSION=v26.0` を設定 | ✅ 完了 |
-| 8 | **Railway に `IG_BD_ACCESS_TOKEN` を設定して Deploy** | ⬜ **未完了（次にやること）** |
-| 9 | 切り替えの動作確認 | ⬜ 未完了 |
-| 10 | DM 開始時刻の変更をスタッフに周知（10時半 → 11時） | ⬜ 未完了 |
+| 8 | Railway に `IG_BD_ACCESS_TOKEN` を設定して Deploy | ✅ 完了（2026-10-07 17:22、権限6つのトークン） |
+| 9 | 切り替えの動作確認 | 🔶 本物のトークンで1店ずつの取得は成功。毎朝の自動実行での確認は 10/8 朝 |
+| 10 | DM 開始時刻の変更をスタッフに周知（10時半 → 11時） | ⬜ **未完了（次にやること）** |
 
-**現在も Instagram 分析は Apify で動いている。** 8 が終わるまで、公式APIは使われない。
+**2026-10-07 17:22 のデプロイから公式APIに切り替わった。** 公式APIで取れない店だけ Apify で取る。
 
 ### 2-2. Meta 側の設定値（秘密情報ではない）
 
@@ -45,8 +45,8 @@
 | Instagram アカウント | @otis_company_official（旧 @reatta2021） |
 | Instagram ビジネスアカウントID | `17841448043763697`（= `IG_BD_USER_ID`） |
 | システムユーザー | menu-outreach（ユーザーID `122095191879509969`） |
-| トークンの権限 | `instagram_basic` / `pages_show_list` / `pages_read_engagement` / `business_management` |
-| トークンの有効期限 | **60日**（「無期限」は選べなかった）。2026-10-07 作成なら **12月6日ごろ失効** |
+| トークンの権限 | `instagram_basic` / `instagram_manage_insights` / `pages_show_list` / `pages_read_engagement` / `ads_read` / `business_management`（**6つ必須**。`instagram_manage_insights` と `ads_read` が無いと Business Discovery が code 10 で失敗する） |
+| トークンの有効期限 | **60日**（「無期限」は選べなかった）。現在のトークンは **2026-12-06 17:21 に失効** |
 | Graph API バージョン | v26.0（グラフAPIエクスプローラでの確認時と同じ） |
 | Meta の権限 | @otis_company_official の管理者は加藤あやかさん。大宮さんも全権限あり |
 
@@ -58,7 +58,7 @@
 |---|---|---|
 | `IG_BD_USER_ID` | ✅ 設定済み | `17841448043763697` |
 | `GRAPH_API_VERSION` | ✅ 設定済み | `v26.0` |
-| `IG_BD_ACCESS_TOKEN` | ⬜ **未設定** | システムユーザーのトークン（`EAA` で始まる約200文字） |
+| `IG_BD_ACCESS_TOKEN` | ✅ 設定済み（2026-10-07） | システムユーザーのトークン（`EAA` で始まる約200文字） |
 | `APIFY_API_TOKEN` | ✅ 設定済み | 予備（公式APIで取れない店の取得）と店舗収集に使う。**消さない** |
 | `USE_VISION` | ✅ `true` | 写真のAI採点（Claude）。今回は変更しない |
 | `AUTO_DAILY_AT` | ✅ `09:30` | 毎朝の自動実行の時刻 |
@@ -125,7 +125,7 @@
 ```
 
 **テスト済み**（モックで再現）：①正常＋1件だけ個人アカウント、②途中でトークン切れ、③最初からトークン無効、④期限5日前、の4ケースすべてで店が落ちず、必要なときだけ通知されることを確認。
-**未確認**：本物のトークンでの公式APIの取得（8 が終わってから 9 で確認する）。
+**本物のトークンで確認済み**（2026-10-07）：@starbucks_j・@otis_company_official をフォロワー数・投稿数・投稿日時・写真6枚まで取得できた。最初は権限4つのトークンで code 10（権限不足）になり、`instagram_manage_insights` と `ads_read` を足して解決。
 
 ---
 
@@ -136,7 +136,7 @@
 
 - **A（推奨）**：大宮さんが Meta で新しいトークンを作り、同じパソコンで Railway に貼る
   1. https://business.facebook.com → 設定 → ユーザー → システムユーザー → **menu-outreach**
-  2. 「新しいトークンを生成」→ アプリ：menu-outreach／期限：60日／権限：上記4つ →「トークンを生成」→ コピー
+  2. 「新しいトークンを生成」→ アプリ：menu-outreach／期限：60日／権限：上記6つ →「トークンを生成」→ コピー
   3. Railway → menu-outreach → web → Variables → New Variable：`IG_BD_ACCESS_TOKEN` に貼り付け → **Deploy**
   4. あやかさんが保存している古いトークンは削除してもらう
 - **B**：あやかさんに、大宮さんのパソコンの Railway 画面へ直接貼り付けてもらう（その後あやかさんの保存分は削除）
