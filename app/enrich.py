@@ -20,7 +20,7 @@ from . import photo
 from .collect import OWNER_RE, dataset_id
 from .core import clamp01, db, settings
 
-GRAPH = "https://graph.facebook.com/" + os.environ.get("GRAPH_API_VERSION", "v21.0")
+GRAPH = "https://graph.facebook.com/" + os.environ.get("GRAPH_API_VERSION", "v26.0")
 
 
 def _parse_ts(s):
@@ -28,6 +28,50 @@ def _parse_ts(s):
     if len(s) > 5 and s[-5] in "+-" and s[-3] != ":":   # 2024-01-01T00:00:00+0000 形式
         s = s[:-2] + ":" + s[-2:]
     return datetime.fromisoformat(s)
+
+
+class GraphFatal(Exception):
+    """トークン切れ・権限不足・回数制限など、続けても全部失敗するエラー。公式APIをその回は使わない。"""
+
+
+class GraphSkip(Exception):
+    """この1件だけ取れない（個人アカウント・非公開・存在しない等）。Apifyで代わりに取る。"""
+
+
+FATAL_CODES = {190, 102, 10, 4, 17, 32, 613}   # トークン無効・権限・回数制限
+
+
+def _graph_error(err):
+    code = err.get("code")
+    msg = f"{err.get('message', 'graph error')}（code {code}）"
+    if code in FATAL_CODES or (isinstance(code, int) and 200 <= code < 300):
+        return GraphFatal(msg)
+    return GraphSkip(msg)
+
+
+def check_graph_token():
+    """公式APIのトークンが使えるか・期限が近くないかを確かめる。問題があれば理由の文字列、なければ None。"""
+    token = os.environ["IG_BD_ACCESS_TOKEN"].strip()
+    try:
+        r = requests.get(f"{GRAPH}/debug_token", params={"input_token": token, "access_token": token}, timeout=20)
+        d = r.json().get("data", {})
+    except Exception as e:
+        return f"トークンを確認できませんでした（{e}）"
+    if not d.get("is_valid"):
+        return "トークンが無効です（期限切れ・取り消しなど）"
+    exp = d.get("expires_at") or 0          # 0 = 無期限（システムユーザー）
+    if exp and exp - time.time() < 10 * 86400:
+        days = max(0, int((exp - time.time()) // 86400))
+        send_notice(f"Instagram公式APIのトークンが、あと{days}日で期限切れになります。作り直してRailwayの IG_BD_ACCESS_TOKEN を更新してください。")
+    return None
+
+
+def send_notice(text):
+    try:
+        from . import notify
+        notify.send("【Menu Photo Pro 営業】" + text)
+    except Exception as e:
+        print(f"  通知に失敗: {e}")
 
 
 def via_graph(username, n_media):
@@ -38,8 +82,10 @@ def via_graph(username, n_media):
                      params={"fields": fields, "access_token": os.environ["IG_BD_ACCESS_TOKEN"]}, timeout=20)
     data = r.json()
     if "error" in data:
-        raise RuntimeError(data["error"].get("message", "graph error"))
-    bd = data["business_discovery"]
+        raise _graph_error(data["error"])
+    bd = data.get("business_discovery")
+    if not bd:
+        raise GraphSkip("business_discovery が空")
     media = bd.get("media", {}).get("data", [])
     return {
         "followers": bd.get("followers_count"), "media_count": bd.get("media_count"),
@@ -271,34 +317,62 @@ def run(limit=200, refresh_days=30):
                  AND (g.shop_id IS NULL OR g.fetched_at < datetime('now', ?) OR (g.ig_match IS NULL AND g.error IS NULL))
                ORDER BY (g.shop_id IS NOT NULL AND g.ig_match IS NULL) DESC
                LIMIT ?""", (f"-{refresh_days} days", limit)).fetchall()
-    print(f"[enrich] 対象 {len(rows)}店 / 取得元: {'Graph API' if use_graph else 'Apify'}")
+    print(f"[enrich] 対象 {len(rows)}店 / 取得元: {'公式API（取れない分はApify）' if use_graph else 'Apify'}")
+    if use_graph and rows:
+        problem = check_graph_token()
+        if problem:
+            use_graph = False
+            print(f"[enrich] 公式APIを使えません: {problem} → 今回はApifyで取得します")
+            send_notice(f"Instagram公式APIが使えません（{problem}）。今朝の分析はApifyで行いました。"
+                        "トークンを確認して、Railwayの IG_BD_ACCESS_TOKEN を更新してください。")
 
+    fallback = []      # 公式APIで取れなかった分（Apifyで取り直す）
     if use_graph:
+        graph_ok = True
         for i, r in enumerate(rows, 1):
+            if not graph_ok:
+                fallback.append(r)
+                continue
             try:
                 prof = via_graph(r["instagram"], cfg["images_per_shop"])
                 _save(r["id"], r["instagram"], prof, cfg)
-            except Exception as e:
-                with db() as conn:
-                    conn.execute("INSERT OR REPLACE INTO ig_stats (shop_id,username,error) VALUES (?,?,?)",
-                                 (r["id"], r["instagram"], str(e)[:200]))
-            print(f"  {i}/{len(rows)} @{r['instagram']}")
+            except GraphFatal as e:
+                graph_ok = False
+                fallback.append(r)
+                print(f"[enrich] 公式APIが途中で使えなくなりました: {e} → 残りはApifyで取得します")
+                send_notice(f"Instagram公式APIが途中で使えなくなりました（{e}）。残りはApifyで取得しました。")
+            except Exception as e:     # 個人アカウント・非公開など、この1件だけ
+                fallback.append(r)
+                print(f"  @{r['instagram']}: 公式APIで取れず（{str(e)[:60]}）→ Apifyで取得")
+            if i % 10 == 0:
+                print(f"  {i}/{len(rows)}")
             time.sleep(18)   # 200件/時 の上限に収める
+        print(f"[enrich] 公式APIで {len(rows) - len(fallback)}店、Apifyに回す分 {len(fallback)}店")
     else:
-        for i in range(0, len(rows), 50):
-            chunk = rows[i:i + 50]
-            profs = via_apify([r["instagram"] for r in chunk], cfg["images_per_shop"])
-            for r in chunk:
-                prof = profs.get(r["instagram"])
-                if prof:
-                    _save(r["id"], r["instagram"], prof, cfg)
-                    continue
-                with db() as conn:
-                    conn.execute("INSERT OR REPLACE INTO ig_stats (shop_id,username,error) VALUES (?,?,?)",
-                                     (r["id"], r["instagram"], "取得できず（非公開・存在しない等）"))
-            print(f"  {min(i + 50, len(rows))}/{len(rows)}")
+        fallback = list(rows)
+
+    if fallback:
+        if os.environ.get("APIFY_API_TOKEN"):
+            _apify_batch(fallback, cfg)
+        else:
+            print(f"[enrich] APIFY_API_TOKEN が無いため {len(fallback)}店は次回に持ち越し")
 
     score_all()
+
+
+def _apify_batch(rows, cfg):
+    for i in range(0, len(rows), 50):
+        chunk = rows[i:i + 50]
+        profs = via_apify([r["instagram"] for r in chunk], cfg["images_per_shop"])
+        for r in chunk:
+            prof = profs.get(r["instagram"])
+            if prof:
+                _save(r["id"], r["instagram"], prof, cfg)
+                continue
+            with db() as conn:
+                conn.execute("INSERT OR REPLACE INTO ig_stats (shop_id,username,error) VALUES (?,?,?)",
+                             (r["id"], r["instagram"], "取得できず（非公開・存在しない等）"))
+        print(f"  Apify {min(i + 50, len(rows))}/{len(rows)}")
 
 
 def score_all():
