@@ -306,6 +306,39 @@ def anthropic_client():
     return anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", "").strip(), default_headers=headers or None)
 
 
+def claude_error_hint(e):
+    """Claude のエラーを、利用者が次に何をすればよいかの日本語にする。設定の問題なら (文, True)。"""
+    m = str(e)
+    if "workspace" in m:
+        return ("APIキーがワークスペースに属していません。Anthropic Console → Settings → Workspaces で"
+                "ワークスペース（例: menu-outreach）を作り、その中で新しいAPIキーを作って Railway の ANTHROPIC_API_KEY を"
+                "差し替えてください（または ANTHROPIC_WORKSPACE_ID に wrkspc_… を設定）"), True
+    if "401" in m or "authentication" in m or "invalid x-api-key" in m:
+        return "APIキーが無効です（削除・入力ミス）。Railway の ANTHROPIC_API_KEY を作り直したキーに差し替えてください", True
+    if "credit" in m or "billing" in m:
+        return "Anthropic のクレジット残高が不足しています。Console → Billing で追加してください", True
+    if "403" in m or "permission" in m:
+        return "このAPIキーでは使えない操作です（権限・ワークスペースの制限）。Console でキーの設定を確認してください", True
+    if "not_found" in m or ("404" in m and "model" in m):
+        return "指定のモデルが見つかりません（settings.yaml のモデル名を確認）", True
+    return m[:200], False
+
+
+def check_claude():
+    """写真採点用と文面提案用のモデルに、ごく短いリクエストを送って使えるか確かめる。"""
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        return ["✗ ANTHROPIC_API_KEY が未設定です"]
+    cfg = settings()
+    out = []
+    for label, model in (("写真のAI採点", cfg["scoring"]["vision_model"]), ("文面の改善案", cfg["improve"]["proposal_model"])):
+        try:
+            anthropic_client().messages.create(model=model, max_tokens=5, messages=[{"role": "user", "content": "OK"}])
+            out.append(f"✓ {label}（{model}）: 使えます")
+        except Exception as e:
+            out.append(f"✗ {label}（{model}）: {claude_error_hint(e)[0]}")
+    return out
+
+
 def clamp01(x):
     return max(0.0, min(1.0, x))
 

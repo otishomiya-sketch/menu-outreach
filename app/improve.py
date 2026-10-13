@@ -10,7 +10,7 @@ import os
 import re
 
 from . import bandit
-from .core import CHANNELS, anthropic_client, db, settings
+from .core import CHANNELS, anthropic_client, claude_error_hint, db, settings
 
 REQUIRED = ["{greeting}", "{trial_url}", "{reply_channel}", "Menu Photo Pro"]
 FACTS = ["10枚", "1,980円"]
@@ -126,7 +126,13 @@ def reflect(propose=True):
             try:
                 notes.append(hypothesize(conn, rep))
             except Exception as e:   # キーの設定ミスなどで提案に失敗しても、集計と引退判定は残す
-                notes.append(f"文面の自動提案に失敗しました（ANTHROPIC_API_KEY を確認）: {str(e)[:160]}")
+                hint = claude_error_hint(e)[0]
+                notes.append(f"文面の自動提案に失敗しました: {hint}")
+                try:
+                    from . import notify
+                    notify.send(f"【Menu Photo Pro 営業】週の振り返りで、文面の改善案を作れませんでした。{hint}")
+                except Exception:
+                    pass
         body = json.dumps({"notes": notes, **rep}, ensure_ascii=False, indent=1, default=str)
         conn.execute("INSERT INTO reports (kind, body) VALUES ('reflect', ?)", (body,))
     for n in notes:

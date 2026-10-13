@@ -306,17 +306,27 @@ def settings_page():
             ("本番送信", cfg["channels"]["email_live"], "EMAIL_LIVE=true"),
         ]),
         ("任意機能", [
-            ("Claude（文面の自動提案）", _set("ANTHROPIC_API_KEY"), "ANTHROPIC_API_KEY"),
+            ("Claude（文面の自動提案）", _set("ANTHROPIC_API_KEY"),
+             "ANTHROPIC_API_KEY（ワークスペースに属さないキーなら ANTHROPIC_WORKSPACE_ID も"
+             + ("：設定済み" if _set("ANTHROPIC_WORKSPACE_ID") else "") + "）"),
             ("写真のAI採点", _set("ANTHROPIC_API_KEY") and cfg["scoring"]["use_vision"], "ANTHROPIC_API_KEY ＋ USE_VISION=true"),
             ("通知（Discord）", _set("DISCORD_WEBHOOK_URL"), "DISCORD_WEBHOOK_URL"),
             ("通知（LINE）", _set("LINE_CHANNEL_ACCESS_TOKEN", "LINE_TO_USER_ID"), "LINE_CHANNEL_ACCESS_TOKEN / LINE_TO_USER_ID"),
             ("Instagram公式API", _set("IG_BD_USER_ID", "IG_BD_ACCESS_TOKEN"), "IG_BD_USER_ID / IG_BD_ACCESS_TOKEN"),
         ]),
     ]
-    return render_template("settings.html", groups=groups, notify_result=_last_notify)
+    return render_template("settings.html", groups=groups, notify_result=_last_notify, claude_result=_last_claude)
 
 
 _last_notify = []
+_last_claude = []
+
+
+@app.post("/settings/test-claude")
+def test_claude():
+    from .core import check_claude
+    _last_claude[:] = check_claude()
+    return redirect("/settings")
 
 
 @app.post("/settings/test-notify")

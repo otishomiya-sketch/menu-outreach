@@ -23,4 +23,9 @@
   <span class="mut">Discord / LINE に設定済みの通知先へテストメッセージを送ります</span>
   {% for r in notify_result %}<div style="width:100%">{{ '✓' if '送信しました' in r else '✗' }} {{ r }}</div>{% endfor %}
 </form>
+<form method="post" action="/settings/test-claude" class="card row">
+  <button>Claudeの接続テスト</button>
+  <span class="mut">写真のAI採点・文面の改善案に使う Claude が使えるか確かめます（数秒・費用は1円未満）</span>
+  {% for r in claude_result %}<div style="width:100%">{{ r }}</div>{% endfor %}
+</form>
 {% endblock %}

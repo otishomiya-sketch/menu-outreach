@@ -18,7 +18,7 @@ import requests
 
 from . import photo
 from .collect import OWNER_RE, dataset_id
-from .core import clamp01, db, settings
+from .core import clamp01, claude_error_hint, db, settings
 
 GRAPH = "https://graph.facebook.com/" + os.environ.get("GRAPH_API_VERSION", "v26.0")
 
@@ -244,10 +244,13 @@ def _save(shop_id, username, prof, cfg):
         try:
             vis = photo.vision_score(imgs, cfg["vision_model"])
         except Exception as e:
-            print(f"  写真のAI採点に失敗: {e}")
-            if any(w in str(e) for w in ("workspace", "authentication", "401", "403", "credit")):
+            hint, config_problem = claude_error_hint(e)
+            print(f"  写真のAI採点に失敗: {hint}")
+            if config_problem:
                 _vision["off"] = True
-                print("  → 設定の問題のため、今回の残りはAI採点をせずに進めます")
+                print("  → 設定の問題のため、今回の残りはAI採点をせずに進めます（明るさ等の機械採点は続けます）")
+                send_notice("写真のAI採点を今日は止めました（機械採点で続行中）。" + hint
+                            + "。直したらダッシュボードの「設定」→「Claudeの接続テスト」で確認できます。")
     m = OWNER_RE.search(prof["biography"] or "")
     with db() as conn:
         shop = conn.execute("SELECT name, website FROM shops WHERE id=?", (shop_id,)).fetchone()
