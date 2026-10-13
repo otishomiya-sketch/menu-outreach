@@ -300,7 +300,8 @@ def settings_page():
         ("メール", [
             ("送信者の会社名・住所・メール", all(s.get(k) for k in ("company", "address", "email")),
              "SENDER_COMPANY / SENDER_ADDRESS / SENDER_EMAIL"),
-            ("送信サービス（Resend）", _set("RESEND_API_KEY"), "RESEND_API_KEY（Railway では SMTP が使えないため）"),
+            ("送信サービス（ヘテムルSMTP）", _set("SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD") or _set("RESEND_API_KEY"),
+             "SMTP_HOST / SMTP_USER / SMTP_PASSWORD"),
             ("返信の取り込み（ヘテムル）", (_set("POP3_HOST") or _set("IMAP_HOST")) and _set("SMTP_USER", "SMTP_PASSWORD"),
              "POP3_HOST ＋ SMTP_USER / SMTP_PASSWORD"),
             ("本番送信", cfg["channels"]["email_live"], "EMAIL_LIVE=true"),
