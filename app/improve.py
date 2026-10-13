@@ -123,7 +123,10 @@ def reflect(propose=True):
         rep = validate(conn)
         notes = select(conn, rep)
         if propose:
-            notes.append(hypothesize(conn, rep))
+            try:
+                notes.append(hypothesize(conn, rep))
+            except Exception as e:   # キーの設定ミスなどで提案に失敗しても、集計と引退判定は残す
+                notes.append(f"文面の自動提案に失敗しました（ANTHROPIC_API_KEY を確認）: {str(e)[:160]}")
         body = json.dumps({"notes": notes, **rep}, ensure_ascii=False, indent=1, default=str)
         conn.execute("INSERT INTO reports (kind, body) VALUES ('reflect', ?)", (body,))
     for n in notes:
