@@ -36,7 +36,7 @@ def _step(name, fn, report):
         report.append(f"✓ {name}")
     except BaseException as e:   # 1つ失敗しても残りは続ける
         print(f"[daily] {name} 失敗: {e}")
-        report.append(f"✗ {name}（{str(e)[:80]}）")
+        report.append(f"✗ {name}（{str(e)[:120]}）")
 
 
 def run_daily(full=False):
@@ -65,7 +65,8 @@ def run_daily(full=False):
                                                 if os.environ.get("RAILWAY_PUBLIC_DOMAIN") else "")
         notify.send("\n".join([
             "【Menu Photo Pro 営業】今朝の自動実行",
-            f"📷 Instagram DM：{q.get('instagram', 0)}件 準備できました",
+            f"📷 Instagram DM：{q.get('instagram', 0)}件 準備できました"
+            + ("（⚠️ 0件：スタッフに今日はDMなしと伝えてください）" if not q.get("instagram") else ""),
             f"💬 LINE：{q.get('line', 0)}件",
             f"✉️ メール：{mails}件 {'送信' if live else '（ドライラン）'}",
             f"収集済み {total}店 / 返信 {funnel.get('replied', 0)}・体験 {funnel.get('trial', 0)}・有料 {funnel.get('paid', 0)}",

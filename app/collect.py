@@ -267,6 +267,9 @@ def run_auto(searches=None):
         except Exception as e:
             fails += 1
             print(f"[collect] 失敗 {kw} @ {area}: {e}")
+            if "remaining usage" in str(e) or "usage limit" in str(e):   # 残りを試しても同じなので止める
+                raise RuntimeError("Apifyの今月の利用枠を使い切りました。新しい店を集められないため、"
+                                   "DMの送信リストが作れません（Apify → Billing で上限を上げるか、翌月の更新まで待つ）")
     print(f"[collect] 自動収集 完了: 新規 {n}件")
     if todo and fails == len(todo):
         raise RuntimeError("すべての検索が失敗しました（APIFY_API_TOKEN・残高を確認）")
