@@ -123,7 +123,7 @@ CREATE TABLE IF NOT EXISTS events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   shop_id INTEGER REFERENCES shops(id),
   touch_id INTEGER,
-  kind TEXT NOT NULL,        -- replied / trial / paid / declined / unsubscribed / unreachable / note
+  kind TEXT NOT NULL,        -- clicked / replied / trial / paid / declined / unsubscribed / unreachable / note
   note TEXT,
   at TEXT DEFAULT (datetime('now','localtime'))
 );
@@ -191,6 +191,10 @@ def init_db():
         for col, typ in (("full_name", "TEXT"), ("external_url", "TEXT"), ("ig_match", "REAL"), ("ig_match_note", "TEXT")):
             if col not in have:
                 c.execute(f"ALTER TABLE ig_stats ADD COLUMN {col} {typ}")
+        have = {r[1] for r in c.execute("PRAGMA table_info(variants)")}
+        for col in ("channels", "followup"):   # 使うチャネルの限定（空=全部）、返事が来たら送る2通目
+            if col not in have:
+                c.execute(f"ALTER TABLE variants ADD COLUMN {col} TEXT")
 
 
 def fix_reported_dm():

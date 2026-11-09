@@ -17,6 +17,21 @@
   {% endif %}
 </div>
 
+{% if followup %}
+<div class="card" style="border-color:var(--acc)">
+  <h3>返事が来たら：見本と2通目を送る</h3>
+  <ol class="mut" style="line-height:1.9">
+    <li>下の「反応を記録」で「返信あり」を押す（お断りの返事なら「お断り」）</li>
+    <li>上の写真から料理がよく写っている1枚を選び、長押し（右クリック）で保存。写真が出ない場合は「Instagram」ボタンから投稿を開いて画面を撮影</li>
+    <li>Menu Photo Pro（<a href="https://menu.otis.company" target="_blank">menu.otis.company</a>）で仕上げて保存
+      ※社内用のデモコードで。お店のお試し枠は使わない</li>
+    <li>Instagram のDMに<b>元の写真と仕上げた写真の2枚</b>を送り、続けて下の文を貼り付けて送る</li>
+  </ol>
+  <textarea id="followup" rows="10">{{ followup }}</textarea>
+  <button type="button" onclick="navigator.clipboard.writeText(document.getElementById('followup').value).then(()=>this.textContent='コピーしました')">2通目をコピー</button>
+</div>
+{% endif %}
+
 <form method="post" class="card">
   <h3>反応を記録</h3>
   <div class="row">

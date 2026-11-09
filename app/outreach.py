@@ -69,6 +69,13 @@ def render(variant, shop, channel, cfg=None):
     return subject, body
 
 
+def render_followup(variant, shop, channel, cfg=None):
+    """返事が来たあとに送る2通目（見本の画像と一緒に送る文）。"""
+    if not variant or not variant["followup"]:
+        return None
+    return render({**dict(variant), "body": variant["followup"], "subject": ""}, shop, channel, cfg)[1]
+
+
 def from_name(cfg):
     """メールの差出人名。例: 株式会社オーティス Menu Photo Pro"""
     return f"{cfg['sender']['company']} {cfg['sender']['brand']}".strip()
@@ -117,10 +124,15 @@ def seed_variants():
                 conn.execute("UPDATE variants SET name=? WHERE name=?", (new, old))
         for v in data["variants"]:
             row = conn.execute("SELECT * FROM variants WHERE name=?", (v["name"],)).fetchone()
+            chs = ",".join(v["channels"]) if v.get("channels") else None
             if not row:
-                conn.execute("""INSERT INTO variants (name,subject,body,status,rationale) VALUES (?,?,?,?,?)""",
-                             (v["name"], v.get("subject"), v["body"], v["status"], v.get("rationale")))
-            elif (row["body"], row["subject"], row["rationale"]) != (v["body"], v.get("subject"), v.get("rationale")):
+                conn.execute("""INSERT INTO variants (name,subject,body,status,rationale,channels,followup)
+                                VALUES (?,?,?,?,?,?,?)""",
+                             (v["name"], v.get("subject"), v["body"], v["status"], v.get("rationale"), chs, v.get("followup")))
+                continue
+            if (row["channels"], row["followup"]) != (chs, v.get("followup")):
+                conn.execute("UPDATE variants SET channels=?, followup=? WHERE id=?", (chs, v.get("followup"), row["id"]))
+            if (row["body"], row["subject"], row["rationale"]) != (v["body"], v.get("subject"), v.get("rationale")):
                 conn.execute("UPDATE variants SET body=?, subject=?, rationale=? WHERE id=?",
                              (v["body"], v.get("subject"), v.get("rationale"), row["id"]))
                 changed.append(row["id"])
@@ -233,8 +245,9 @@ def track_event(ref, event, shop_name=None, app_code=None):
     """どの送信で無料体験・有料契約が生まれたかを記録する。
     ref      … お試しURLの ref（店舗コード-チャネル文面ID）。無料体験の時点で届く
     app_code … Menu Photo Pro のデモコード。無料体験のときに ref と一緒に記録し、後日の有料契約はこれだけで店を特定する"""
-    if event not in ("trial", "paid"):
-        return {"ok": False, "error": "event は trial か paid"}
+    if event not in ("visit", "trial", "paid"):
+        return {"ok": False, "error": "event は visit / trial / paid"}
+    kind = "clicked" if event == "visit" else event   # visit = 営業のリンクを開いた
     ref = (ref or "").strip().lower()
     app_code = (app_code or "").strip()[:64] or None
     with db() as conn:
@@ -251,13 +264,13 @@ def track_event(ref, event, shop_name=None, app_code=None):
             return {"ok": False, "error": "該当する店がありません"}
         if app_code:
             conn.execute("INSERT OR IGNORE INTO app_codes (code, shop_id, ref) VALUES (?,?,?)", (app_code, shop["id"], ref))
-        if conn.execute("SELECT 1 FROM events WHERE shop_id=? AND kind=?", (shop["id"], event)).fetchone():
+        if conn.execute("SELECT 1 FROM events WHERE shop_id=? AND kind=?", (shop["id"], kind)).fetchone():
             return {"ok": True, "duplicate": True, "shop": shop["name"]}
         touch = conn.execute("""SELECT id FROM touches WHERE shop_id=? AND channel=? AND variant_id=? AND status='sent'
                                 ORDER BY sent_at DESC LIMIT 1""", (shop["id"], ch, vid)).fetchone()
         note = "Menu Photo Pro から自動記録" + (f"（入力された店名: {shop_name[:40]}）" if shop_name else "")
-        record_outcome(conn, shop["id"], event, note, touch and touch["id"])
-    print(f"[track] {shop['name']}: {event}（{ch} / 文面{vid}）")
+        record_outcome(conn, shop["id"], kind, note, touch and touch["id"])
+    print(f"[track] {shop['name']}: {kind}（{ch} / 文面{vid}）")
     return {"ok": True, "shop": shop["name"], "event": event}
 
 
@@ -285,7 +298,7 @@ def mark_dm_undelivered(conn, shop_id, note="DMが届かなかった（相手が
 
 
 def record_outcome(conn, shop_id, kind, note=None, touch_id=None):
-    """replied / trial / paid / declined / unsubscribed / unreachable / note"""
+    """clicked / replied / trial / paid / declined / unsubscribed / unreachable / note"""
     if touch_id is None:
         row = conn.execute("""SELECT id FROM touches WHERE shop_id=? AND status='sent'
                               ORDER BY sent_at DESC LIMIT 1""", (shop_id,)).fetchone()

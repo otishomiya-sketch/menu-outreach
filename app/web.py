@@ -29,7 +29,7 @@ JA = {
     # チャネル
     "instagram": "Instagram DM", "email": "メール", "line": "LINE",
     # 記録の種類
-    "note": "メモ",
+    "note": "メモ", "clicked": "リンクを開いた",
     # 文面・仮説の状態
     "active": "配信中", "proposed": "承認待ち", "retired": "停止", "rejected": "却下",
     "testing": "検証中", "adopted": "採用",
@@ -134,6 +134,7 @@ def queue(channel):
                          FROM touches t JOIN shops s ON s.id=t.shop_id LEFT JOIN ig_stats g ON g.shop_id=s.id
                          LEFT JOIN variants v ON v.id=t.variant_id
                          WHERE t.channel=? AND t.status='queued' ORDER BY s.score DESC LIMIT 1""", (channel,)).fetchone()
+        two_step = bool(t and c.execute("SELECT followup FROM variants WHERE id=?", (t["variant_id"],)).fetchone()[0])
         left = c.execute("SELECT COUNT(*) FROM touches WHERE channel=? AND status='queued'", (channel,)).fetchone()[0]
         done = c.execute("""SELECT COUNT(*) FROM touches WHERE channel=? AND status='sent'
                             AND date(sent_at)=date('now','localtime')""", (channel,)).fetchone()[0]
@@ -142,7 +143,7 @@ def queue(channel):
         return render_template("queue_empty.html", done=done, limit=limit)
     sender_handle = os.environ.get("IG_SENDER_HANDLE") if channel == "instagram" else os.environ.get("LINE_SENDER_NAME")
     return render_template("queue.html", t=t, ch=channel, left=left, done=done, limit=limit, url=open_url(channel, t),
-                           sender_handle=sender_handle)
+                           sender_handle=sender_handle, two_step=two_step)
 
 
 @app.post("/touch/<int:tid>")
@@ -235,8 +236,8 @@ def leads():
         sql += " AND stage=?"
         args.append(stage)
     if q:
-        sql += " AND (name LIKE ? OR category LIKE ?)"
-        args += [f"%{q}%"] * 2
+        sql += " AND (name LIKE ? OR category LIKE ? OR instagram LIKE ?)"   # DMの返事はユーザー名で来る
+        args += [f"%{q.lstrip('@')}%"] * 3
     sql += " ORDER BY score DESC NULLS LAST LIMIT 300"
     with db() as c:
         rows = c.execute(sql, args).fetchall()
@@ -261,7 +262,13 @@ def shop(sid):
         touches = c.execute("""SELECT t.*, v.name vname FROM touches t LEFT JOIN variants v ON v.id=t.variant_id
                                WHERE shop_id=? ORDER BY t.id DESC""", (sid,)).fetchall()
         events = c.execute("SELECT * FROM events WHERE shop_id=? ORDER BY id DESC", (sid,)).fetchall()
-    return render_template("shop.html", s=s, g=g, touches=touches, events=events)
+        followup = None
+        sent = c.execute("""SELECT t.channel, v.* FROM touches t JOIN variants v ON v.id=t.variant_id
+                            WHERE t.shop_id=? AND t.status='sent' AND v.followup IS NOT NULL
+                            ORDER BY t.sent_at DESC LIMIT 1""", (sid,)).fetchone()
+        if sent:
+            followup = outreach.render_followup(sent, s, sent["channel"])
+    return render_template("shop.html", s=s, g=g, touches=touches, events=events, followup=followup)
 
 
 @app.route("/improve", methods=["GET", "POST"])
@@ -276,10 +283,12 @@ def improve_page():
             return redirect("/improve")
         variants = c.execute("SELECT * FROM variants ORDER BY status='active' DESC, status='proposed' DESC, id").fetchall()
         perf = {ch: bandit.p_best(c, ch) for ch in CHANNELS}
+        funnel = bandit.funnel(c)
         hyps = c.execute("SELECT * FROM hypotheses ORDER BY id DESC LIMIT 20").fetchall()
         rep = c.execute("SELECT * FROM reports ORDER BY id DESC LIMIT 1").fetchone()
     notes = json.loads(rep["body"])["notes"] if rep else []
-    return render_template("improve.html", variants=variants, perf=perf, chs=CHANNELS, hyps=hyps, rep=rep, notes=notes)
+    return render_template("improve.html", variants=variants, perf=perf, chs=CHANNELS, hyps=hyps, rep=rep, notes=notes,
+                           funnel=funnel)
 
 
 def _set(*names):

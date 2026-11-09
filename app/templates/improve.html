@@ -39,6 +39,20 @@
   </div>
 </div>
 <div class="card tw">
+  <h2>どこで止まっているか（段階ごとの店数）</h2>
+  <p class="mut">「リンクを開いた」は 2026-11-09 から記録を始めました。それより前に送った分は 0 のままです。返信・体験・有料は、その段階に進んだ店も前の段階に数えています。</p>
+  <table>
+    <tr><th>チャネル</th><th>文面</th><th>送信</th><th>リンクを開いた</th><th>返信</th><th>無料体験</th><th>有料</th></tr>
+    {% for f in funnel %}
+    <tr><td>{{ f.channel|ja }}</td><td>{{ f.name }}</td><td>{{ f.sent }}</td>
+      {% for k in ['clicked', 'replied', 'trials', 'paid'] %}
+      <td>{{ f[k] }}{% if f.sent %} <span class="mut">({{ '%.1f'|format(100 * f[k] / f.sent) }}%)</span>{% endif %}</td>
+      {% endfor %}</tr>
+    {% else %}<tr><td colspan="7" class="mut">まだ送信がありません</td></tr>
+    {% endfor %}
+  </table>
+</div>
+<div class="card tw">
   <h2>仮説</h2>
   <table>
     <tr><th>日付</th><th>仮説</th><th>状態</th><th>結果</th></tr>

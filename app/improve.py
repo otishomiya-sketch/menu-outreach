@@ -40,6 +40,8 @@ def select(conn, rep):
     notes = []
     active = conn.execute("SELECT COUNT(*) FROM variants WHERE status='active'").fetchone()[0]
     for ch, arms in rep["channels"].items():
+        if any(a["sent"] < cfg["min_sends_to_judge"] for a in arms):
+            continue   # 比べる相手がまだ判定できる件数に届いていない（新しい文面を試し中）
         for a in arms:
             if a["sent"] < cfg["min_sends_to_judge"]:
                 continue

@@ -24,7 +24,8 @@ def stats(conn, channel=None):
 
 def _by_variant(conn, channel):
     out = {}
-    for r in conn.execute("SELECT id, name, status FROM variants WHERE status='active'"):
+    for r in conn.execute("""SELECT id, name, status FROM variants WHERE status='active'
+                             AND (channels IS NULL OR ','||channels||',' LIKE ?)""", (f"%,{channel},%",)):
         out[r["id"]] = {"id": r["id"], "name": r["name"], "sent": 0, "positive": 0}
     for s in stats(conn, channel):
         if s["id"] in out and (s["channel"] == channel):
@@ -32,10 +33,19 @@ def _by_variant(conn, channel):
     return out
 
 
+def _min_sends():
+    from .core import settings
+    return settings()["improve"]["min_sends_to_judge"]
+
+
 def choose(conn, channel):
     arms = _by_variant(conn, channel)
     if not arms:
         return None
+    # 新しい文面が判定できる件数に届くまでは半々（均等）に出す。
+    # 反応ゼロの文面どうしだと、送った数が少ない新顔ばかりが選ばれて比べられなくなるため
+    if any(a["sent"] < _min_sends() for a in arms.values()):
+        return conn.execute("SELECT * FROM variants WHERE id=?", (random.choice(list(arms)),)).fetchone()
     best = max(arms.values(), key=lambda a: random.betavariate(1 + a["positive"], 1 + a["sent"] - a["positive"]))
     return conn.execute("SELECT * FROM variants WHERE id=?", (best["id"],)).fetchone()
 
@@ -51,3 +61,17 @@ def p_best(conn, channel, draws=4000):
         wins[max(samples, key=samples.get)] += 1
     return {a["id"]: {**a, "rate": a["positive"] / a["sent"] if a["sent"] else None,
                       "p_best": wins[a["id"]] / draws} for a in arms}
+
+
+def funnel(conn):
+    """文面×チャネルごとの段階別の店数：送信 → リンクを開いた → 返信 → 無料体験 → 有料。
+    後の段階に進んだ店は、前の段階も通ったものとして数える（返信してからリンクを開く店もあるため）。"""
+    rows = conn.execute("""
+      SELECT v.id, v.name, t.channel, COUNT(DISTINCT t.id) AS sent,
+             COUNT(DISTINCT CASE WHEN e.kind IN ('clicked','trial','paid') THEN t.id END) AS clicked,
+             COUNT(DISTINCT CASE WHEN e.kind IN ('replied','trial','paid') THEN t.id END) AS replied,
+             COUNT(DISTINCT CASE WHEN e.kind IN ('trial','paid') THEN t.id END) AS trials,
+             COUNT(DISTINCT CASE WHEN e.kind='paid' THEN t.id END) AS paid
+      FROM touches t JOIN variants v ON v.id=t.variant_id LEFT JOIN events e ON e.touch_id=t.id
+      WHERE t.status='sent' GROUP BY v.id, t.channel ORDER BY t.channel, v.id""")
+    return [dict(r) for r in rows]
