@@ -129,6 +129,7 @@ def reflect(propose=True):
                 notes.append(hypothesize(conn, rep))
             except Exception as e:   # キーの設定ミスなどで提案に失敗しても、集計と引退判定は残す
                 hint = claude_error_hint(e)[0]
+                print(f"[improve] 元のエラー: {str(e)[:300]}")
                 notes.append(f"文面の自動提案に失敗しました: {hint}")
                 try:
                     from . import notify

@@ -246,6 +246,7 @@ def _save(shop_id, username, prof, cfg):
         except Exception as e:
             hint, config_problem = claude_error_hint(e)
             print(f"  写真のAI採点に失敗: {hint}")
+            print(f"  （元のエラー: {str(e)[:300]}）")
             if config_problem:
                 _vision["off"] = True
                 print("  → 設定の問題のため、今回の残りはAI採点をせずに進めます（明るさ等の機械採点は続けます）")

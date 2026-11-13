@@ -340,6 +340,7 @@ def check_claude():
             out.append(f"✓ {label}（{model}）: 使えます")
         except Exception as e:
             out.append(f"✗ {label}（{model}）: {claude_error_hint(e)[0]}")
+            print(f"[claude] 接続テスト失敗 {model}: {str(e)[:300]}")
     return out
 
 
