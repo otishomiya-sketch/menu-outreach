@@ -144,6 +144,21 @@ def seed_variants():
                 var = conn.execute("SELECT * FROM variants WHERE id=?", (t["variant_id"],)).fetchone()
                 conn.execute("UPDATE touches SET message=? WHERE id=?", (render(var, t, t["channel"], cfg)[1], t[0]))
             print(f"[variants] 文面 {len(changed)}本を更新し、送信待ちの文面を作り直しました")
+        # 停止した文面・そのチャネルでは使わなくなった文面の送信待ちは、いま使える文面で作り直す
+        cfg = settings()
+        stale = conn.execute("""SELECT t.id, t.channel, s.* FROM touches t JOIN shops s ON s.id=t.shop_id
+                                JOIN variants v ON v.id=t.variant_id
+                                WHERE t.status='queued' AND (v.status!='active' OR
+                                      (v.channels IS NOT NULL AND ','||v.channels||',' NOT LIKE '%,'||t.channel||',%'))""").fetchall()
+        n = 0
+        for t in stale:
+            var = bandit.choose(conn, t["channel"])
+            if var:
+                conn.execute("UPDATE touches SET variant_id=?, message=? WHERE id=?",
+                             (var["id"], render(var, t, t["channel"], cfg)[1], t[0]))
+                n += 1
+        if n:
+            print(f"[variants] 送信待ち {n}件を、いま使っている文面に差し替えました")
 
 
 # ---------- 計画 ----------
